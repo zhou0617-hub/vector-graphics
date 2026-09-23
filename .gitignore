@@ -1,0 +1,86 @@
+# ============ 依赖 ============
+node_modules/
+.pnp
+.pnp.js
+
+# ============ 构建产物 ============
+.next/
+out/
+dist/
+build/
+target/
+*.class
+
+# ============ Python ============
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+
+# ============ IDE ============
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# ============ 环境变量 ============
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# ============ 日志 ============
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ============ 本地数据 ============
+data/
+uploads/
+tmp/
+temp/
+
+# ============ 数据库 ============
+*.db
+*.sqlite
+*.sqlite3
+
+# ============ Real-ESRGAN ============
+esrgan-service/weights/*.pth
+esrgan-service/weights/*.onnx
+esrgan-service/.venv/
+esrgan-service/venv/
+esrgan-service/__pycache__/
+esrgan-service/**/__pycache__/
+esrgan-service/.env
+
+# ============ 通用 Python ============
+**/__pycache__/
+**/*.pyc
+**/.pytest_cache/
+
+# ============ 生成的文档 ============
+docs/*.docx
+技术栈.docx
+
+# ============ 临时脚本 ============
+setup-*.js
+
+esrgan-service/weights/*.pth
+esrgan-service/.venv/
+esrgan-service/__pycache__/
+**/__pycache__/
+docs/*.docx
+技术栈.docx
+setup-*.js

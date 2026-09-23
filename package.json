@@ -1,0 +1,16 @@
+{
+  "name": "vector-graphics",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Image to SVG conversion platform with community",
+  "scripts": {
+    "dev": "node scripts/start-dev.js",
+    "init:db": "node scripts/init-db.js",
+    "build": "node scripts/build.js",
+    "frontend": "npm --prefix frontend run dev",
+    "backend": "node -e \"const {spawn}=require('child_process');const os=require('os');const p=require('path');const isWin=os.platform()==='win32';const cwd=p.join(__dirname,'backend');const cmd=isWin?'mvnw.cmd':'./mvnw';spawn(cmd,['spring-boot:run'],{cwd,stdio:'inherit',shell:isWin});\""
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
