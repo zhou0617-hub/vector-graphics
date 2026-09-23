@@ -1,8 +1,8 @@
 spring:
   datasource:
-    url: jdbc:mysql://localhost:3306/vector_graphics?useSSL=false&serverTimezone=Asia/Shanghai&characterEncoding=UTF-8&allowPublicKeyRetrieval=true
-    username: vg
-    password: vg123456
+    url: jdbc:mysql://localhost:3306/vector_graphics?...
+    username: znyh
+    password: Znyh617617
     driver-class-name: com.mysql.cj.jdbc.Driver
     hikari:
       maximum-pool-size: 10
