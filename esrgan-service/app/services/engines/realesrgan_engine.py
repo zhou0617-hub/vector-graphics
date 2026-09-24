@@ -1,11 +1,19 @@
-import io
+﻿import io
+
 import numpy as np
+import torch
 from PIL import Image
 from basicsr.archs.rrdbnet_arch import RRDBNet
 from realesrgan import RealESRGANer
 
 from app.core.config import settings
 from app.services.engines.base import UpscaleEngine
+
+
+def _detect_device():
+    if torch.cuda.is_available():
+        return torch.device("cuda"), True
+    return torch.device("cpu"), False
 
 
 class RealESRGANEngine(UpscaleEngine):
@@ -37,14 +45,22 @@ class RealESRGANEngine(UpscaleEngine):
         cfg = model_map[model_key]
         self._name = model_key
         self._scale = cfg["scale"]
+
+        device, use_half = _detect_device()
+        is_gpu = device.type == "cuda"
+        tile = 0 if is_gpu else 400
+
+        print(f"[RealESRGANEngine] model={model_key} device={device} half={use_half} tile={tile}")
+
         self._upsampler = RealESRGANer(
             scale=cfg["scale"],
             model_path=cfg["path"],
             model=cfg["arch"],
-            tile=400,
+            tile=tile,
             tile_pad=10,
             pre_pad=0,
-            half=False,
+            half=use_half,
+            device=device,
         )
 
     @property
