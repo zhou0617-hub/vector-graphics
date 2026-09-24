@@ -5,6 +5,11 @@ import com.svgplatform.common.constant.ErrorCode;
 import com.svgplatform.common.exception.BusinessException;
 import com.svgplatform.infrastructure.storage.StorageService;
 import com.svgplatform.infrastructure.vectorizer.VectorizerClient;
+import com.svgplatform.infrastructure.esrgan.EsrganClient;
+import com.svgplatform.modules.conversion.dto.UpscaleResponse;
+import java.io.ByteArrayInputStream;
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
 import com.svgplatform.modules.conversion.dto.ConvertResponse;
 import com.svgplatform.modules.conversion.entity.Conversion;
 import com.svgplatform.modules.conversion.repository.ConversionMapper;
@@ -36,6 +41,7 @@ public class ConversionService {
     private final ConversionMapper conversionMapper;
     private final StorageService storageService;
     private final VectorizerClient vectorizerClient;
+    private final EsrganClient esrganClient;
 
     @Transactional
     public ConvertResponse convert(Long userId, MultipartFile file, String params) {
@@ -169,5 +175,68 @@ public class ConversionService {
             }
         }
         return null;
+    }
+
+    @Transactional
+    public UpscaleResponse upscale(Long userId, MultipartFile file, String model) {
+        validate(file);
+        String originalName = file.getOriginalFilename() == null ? "upload" : file.getOriginalFilename();
+        String ext = extractExt(originalName);
+        String format = ext.toUpperCase();
+        String datePath = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy/MM"));
+        String baseName = UUID.randomUUID().toString().replace("-", "");
+
+        byte[] imageBytes;
+        try { imageBytes = file.getBytes(); } catch (Exception e) { throw new BusinessException("读取文件失败"); }
+
+        String originalRelative = datePath + "/" + baseName + "." + ext.toLowerCase();
+        storageService.store(imageBytes, originalRelative);
+
+        FileEntity fileEntity = new FileEntity();
+        fileEntity.setUserId(userId);
+        fileEntity.setName(originalName);
+        fileEntity.setOriginalUrl(storageService.getPublicUrl(originalRelative));
+        fileEntity.setFormat(format);
+        fileEntity.setSource("upscale");
+        fileEntity.setSize((long) imageBytes.length);
+        fileEntity.setStatus("normal");
+        fileMapper.insert(fileEntity);
+
+        byte[] upscaledBytes;
+        try {
+            upscaledBytes = esrganClient.upscale(imageBytes, originalName, model);
+        } catch (BusinessException e) {
+            UpscaleResponse resp = new UpscaleResponse();
+            resp.setFileId(fileEntity.getId());
+            resp.setStatus("failed");
+            resp.setOriginalUrl(fileEntity.getOriginalUrl());
+            resp.setMessage(e.getMessage());
+            return resp;
+        }
+
+        String upscaledRelative = datePath + "/" + baseName + "_upscaled.png";
+        storageService.store(upscaledBytes, upscaledRelative);
+        String upscaledUrl = storageService.getPublicUrl(upscaledRelative);
+
+        Integer width = null, height = null;
+        try {
+            BufferedImage img = ImageIO.read(new ByteArrayInputStream(upscaledBytes));
+            if (img != null) { width = img.getWidth(); height = img.getHeight(); }
+        } catch (Exception ignored) {}
+
+        fileEntity.setSvgUrl(upscaledUrl);
+        fileEntity.setWidth(width);
+        fileEntity.setHeight(height);
+        fileMapper.updateById(fileEntity);
+
+        UpscaleResponse resp = new UpscaleResponse();
+        resp.setFileId(fileEntity.getId());
+        resp.setStatus("success");
+        resp.setOriginalUrl(fileEntity.getOriginalUrl());
+        resp.setResultUrl(upscaledUrl);
+        resp.setWidth(width);
+        resp.setHeight(height);
+        resp.setMessage("超分成功");
+        return resp;
     }
 }

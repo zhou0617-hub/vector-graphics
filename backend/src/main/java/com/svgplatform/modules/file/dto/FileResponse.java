@@ -13,6 +13,7 @@ public class FileResponse implements Serializable {
     private String originalUrl;
     private String svgUrl;
     private String format;
+    private String source;
     private Long size;
     private Integer width;
     private Integer height;

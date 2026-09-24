@@ -33,6 +33,9 @@ app:
     expiration: 604800000
   vectorizer:
     base-url: http://localhost:8000
+  esrgan:
+    base-url: http://localhost:8001
+    timeout-ms: 300000
   storage:
     type: local
     local:

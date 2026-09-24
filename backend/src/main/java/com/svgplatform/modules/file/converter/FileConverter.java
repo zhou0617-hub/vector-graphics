@@ -15,6 +15,7 @@ public final class FileConverter {
         resp.setOriginalUrl(file.getOriginalUrl());
         resp.setSvgUrl(file.getSvgUrl());
         resp.setFormat(file.getFormat());
+        resp.setSource(file.getSource());
         resp.setSize(file.getSize());
         resp.setWidth(file.getWidth());
         resp.setHeight(file.getHeight());

@@ -19,10 +19,21 @@ export interface FileItem {
   originalUrl: string;
   svgUrl: string | null;
   format: string;
+  source: string;
   size: number;
   width: number | null;
   height: number | null;
   createdAt: string;
+}
+
+export interface UpscaleResponse {
+  fileId: number;
+  status: string;
+  originalUrl: string | null;
+  resultUrl: string | null;
+  width: number | null;
+  height: number | null;
+  message: string;
 }
 
 export interface ConvertResponse {

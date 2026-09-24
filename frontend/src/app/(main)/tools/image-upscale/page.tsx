@@ -5,63 +5,39 @@ import { useDropzone } from 'react-dropzone';
 import { useRouter } from 'next/navigation';
 import { Header } from '@/components/layout/header';
 import { ImageViewer } from '@/components/image-viewer';
-import { convertImage } from '@/lib/api/conversion';
+import { upscaleImage } from '@/lib/api/upscale';
 import { assetUrl } from '@/lib/api/client';
 import { downloadFile } from '@/lib/utils';
 import { useAuthStore } from '@/stores/auth-store';
-import type { ConvertResponse } from '@/types/api';
+import type { UpscaleResponse } from '@/types/api';
 import { ImagePlus, FolderUp, Download, X, ArrowRight, Loader2, ZoomIn, RefreshCw, Sparkles } from 'lucide-react';
 
 const MODES = {
-  standard: {
-    label: '标准',
-    short: '快速转换',
-    description: '快速矢量化，文件小，适合图标、Logo 等简单图形',
-    suitable: '图标、Logo、简单插画',
-    output: '文件最小，速度最快',
-    params: {
-      color_precision: 6,
-      layer_difference: 16,
-      length_threshold: 4.0,
-      filter_speckle: 4,
-      max_iterations: 10,
-      splice_threshold: 45,
-    },
+  x2: {
+    label: '2倍放大',
+    short: '保守放大',
+    description: '只放大 2 倍，输出更自然，适合已经比较清晰的图片做轻微提升',
+    suitable: '清晰的照片、插画',
+    output: 'RealESRGAN_x2plus',
   },
-  high: {
-    label: '高精度',
-    short: '细节优先',
-    description: '保留更多颜色和细节，适合有渐变的插画',
-    suitable: '插画、有渐变的图片',
-    output: '文件中等，细节丰富',
-    params: {
-      color_precision: 7,
-      layer_difference: 10,
-      length_threshold: 3.0,
-      filter_speckle: 2,
-      max_iterations: 20,
-      splice_threshold: 35,
-    },
+  anime: {
+    label: '动漫插画',
+    short: '二次元专用',
+    description: '针对动漫、插画、漫画优化，线条锐利，色块干净，保留原始风格',
+    suitable: '动漫、漫画、插画',
+    output: 'RealESRGAN_x4plus_anime_6B',
   },
-  ultra: {
-    label: '超高清',
-    short: '极致细节',
-    description: '最大程度还原细节，文件最大，适合专业场景',
-    suitable: '需要印刷、专业设计',
-    output: '文件最大，细节最全',
-    params: {
-      color_precision: 8,
-      layer_difference: 4,
-      length_threshold: 1.5,
-      filter_speckle: 1,
-      max_iterations: 30,
-      splice_threshold: 20,
-    },
+  general: {
+    label: '通用图片',
+    short: '照片通用',
+    description: '通用 4 倍放大，还原真实细节和纹理，适合大多数场景',
+    suitable: '照片、风景、人像',
+    output: 'RealESRGAN_x4plus',
   },
 } as const;
 
 type ModeKey = keyof typeof MODES;
-const MODE_KEYS: ModeKey[] = ['standard', 'high', 'ultra'];
+const MODE_KEYS: ModeKey[] = ['x2', 'anime', 'general'];
 
 function ModeSelector({ value, onChange }: { value: ModeKey; onChange: (v: ModeKey) => void }) {
   const index = MODE_KEYS.indexOf(value);
@@ -107,8 +83,8 @@ function ModeSelector({ value, onChange }: { value: ModeKey; onChange: (v: ModeK
                   <span className="text-white/80">{mode.suitable}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-white/40">输出</span>
-                  <span className="text-white/60 text-[10px]">{mode.output}</span>
+                  <span className="text-white/40">模型</span>
+                  <span className="text-white/60 font-mono text-[10px]">{mode.output}</span>
                 </div>
               </div>
               <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-px w-3 h-3 bg-[#15161a] border-r border-b border-white/10 rotate-45" />
@@ -120,13 +96,13 @@ function ModeSelector({ value, onChange }: { value: ModeKey; onChange: (v: ModeK
   );
 }
 
-export default function ImageToSvgPage() {
+export default function ImageUpscalePage() {
   const router = useRouter();
   const token = useAuthStore((s) => s.token);
-  const [mode, setMode] = useState<ModeKey>('standard');
+  const [mode, setMode] = useState<ModeKey>('anime');
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string>('');
-  const [result, setResult] = useState<ConvertResponse | null>(null);
+  const [result, setResult] = useState<UpscaleResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [viewerSrc, setViewerSrc] = useState<string | null>(null);
@@ -153,26 +129,26 @@ export default function ImageToSvgPage() {
     maxSize: 10 * 1024 * 1024,
   });
 
-  const handleConvert = async (e: React.MouseEvent) => {
+  const handleUpscale = async (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!token) { router.push('/login'); return; }
     if (!file) { setError('请先选择图片'); return; }
     setLoading(true);
     setError('');
     try {
-      const res = await convertImage(file, MODES[mode].params);
+      const res = await upscaleImage(file, mode);
       if (res.status === 'success') { setResult(res); }
-      else { setError(res.message || '转换失败'); }
+      else { setError(res.message || '超分失败'); }
     } catch (err) {
-      setError(err instanceof Error ? err.message : '转换失败');
+      setError(err instanceof Error ? err.message : '超分失败');
     } finally { setLoading(false); }
   };
 
-  const handleDownloadSvg = async (e: React.MouseEvent) => {
+  const handleDownload = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!result?.svgUrl) return;
+    if (!result?.resultUrl) return;
     setDownloading(true);
-    try { await downloadFile(assetUrl(result.svgUrl), 'output.svg'); }
+    try { await downloadFile(assetUrl(result.resultUrl), 'upscaled.png'); }
     catch (err) { alert(err instanceof Error ? err.message : '下载失败'); }
     finally { setDownloading(false); }
   };
@@ -190,10 +166,10 @@ export default function ImageToSvgPage() {
           <div className="text-center mb-10">
             <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/10 text-sm text-[#f2f2f2]/70 mb-4">
               <Sparkles className="w-4 h-4 text-[#f9cf00]" />
-              VTracer 矢量化
+              Real-ESRGAN 超分
             </div>
-            <h1 className="text-3xl md:text-4xl font-bold mb-3">图片转 SVG</h1>
-            <p className="text-[#f2f2f2]/50">上传图片，一键生成矢量图形</p>
+            <h1 className="text-3xl md:text-4xl font-bold mb-3">AI 放大</h1>
+            <p className="text-[#f2f2f2]/50">AI 放大图片，保留细节，提升清晰度</p>
           </div>
 
           {!result ? (
@@ -249,11 +225,11 @@ export default function ImageToSvgPage() {
                         {file.name} · {(file.size / 1024).toFixed(1)} KB
                       </span>
                     )}
-                    <button onClick={handleConvert} disabled={loading || !file} className="btn-primary">
+                    <button onClick={handleUpscale} disabled={loading || !file} className="btn-primary">
                       {loading ? (
-                        <><Loader2 className="w-4 h-4 animate-spin" /> 转换中</>
+                        <><Loader2 className="w-4 h-4 animate-spin" /> 超分中</>
                       ) : (
-                        <>开始生成 <ArrowRight className="w-4 h-4" /></>
+                        <>开始超分 <ArrowRight className="w-4 h-4" /></>
                       )}
                     </button>
                   </div>
@@ -269,7 +245,7 @@ export default function ImageToSvgPage() {
             <div className="glass-card p-6">
               <div className="flex items-center justify-between mb-6">
                 <div className="flex items-center gap-3">
-                  <h2 className="text-xl font-semibold">转换结果</h2>
+                  <h2 className="text-xl font-semibold">超分结果</h2>
                   <span className="px-2.5 py-0.5 rounded-full bg-[#f9cf00]/15 border border-[#f9cf00]/40 text-[#f9cf00] text-xs font-medium">
                     {MODES[mode].label}
                   </span>
@@ -278,7 +254,7 @@ export default function ImageToSvgPage() {
                   onClick={clearAll}
                   className="text-sm text-[#f2f2f2]/50 hover:text-[#f2f2f2] transition-colors flex items-center gap-1.5"
                 >
-                  <RefreshCw className="w-3.5 h-3.5" /> 转换新图片
+                  <RefreshCw className="w-3.5 h-3.5" /> 处理新图片
                 </button>
               </div>
 
@@ -298,13 +274,13 @@ export default function ImageToSvgPage() {
                 </div>
 
                 <div className="flex flex-col">
-                  <p className="text-sm text-[#f2f2f2]/50 mb-3">SVG</p>
+                  <p className="text-sm text-[#f2f2f2]/50 mb-3">超分后</p>
                   <div
                     className="relative rounded-xl overflow-hidden border border-white/10 bg-white/5 cursor-zoom-in group"
                     style={{ aspectRatio: '1 / 1' }}
-                    onClick={() => openViewer(assetUrl(result.svgUrl)!, assetUrl(result.svgUrl)!)}
+                    onClick={() => openViewer(assetUrl(result.resultUrl)!, assetUrl(result.resultUrl)!)}
                   >
-                    <img src={assetUrl(result.svgUrl)} alt="SVG" className="absolute inset-0 w-full h-full object-contain p-2" />
+                    <img src={assetUrl(result.resultUrl)} alt="超分后" className="absolute inset-0 w-full h-full object-contain p-2" />
                     <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
                       <ZoomIn className="w-6 h-6" />
                     </div>
@@ -312,12 +288,16 @@ export default function ImageToSvgPage() {
                 </div>
               </div>
 
+              {result.width && result.height && (
+                <p className="text-sm text-[#f2f2f2]/50 mb-4">输出尺寸：{result.width} × {result.height}</p>
+              )}
+
               <div className="flex gap-3">
-                <button onClick={handleDownloadSvg} disabled={downloading} className="btn-primary">
+                <button onClick={handleDownload} disabled={downloading} className="btn-primary">
                   {downloading ? (
                     <><Loader2 className="w-4 h-4 animate-spin" /> 下载中</>
                   ) : (
-                    <><Download className="w-4 h-4" /> 下载 SVG</>
+                    <><Download className="w-4 h-4" /> 下载图片</>
                   )}
                 </button>
                 <button onClick={() => router.push('/my/files')} className="btn-secondary">查看我的文件</button>

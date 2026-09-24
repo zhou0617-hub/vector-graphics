@@ -2,6 +2,7 @@ package com.svgplatform.modules.conversion.controller;
 
 import com.svgplatform.common.response.ApiResponse;
 import com.svgplatform.modules.conversion.dto.ConvertResponse;
+import com.svgplatform.modules.conversion.dto.UpscaleResponse;
 import com.svgplatform.modules.conversion.entity.Conversion;
 import com.svgplatform.modules.conversion.service.ConversionService;
 import com.svgplatform.security.SecurityUtils;
@@ -28,6 +29,13 @@ public class ConversionController {
     ) {
         return ApiResponse.success(
                 conversionService.convert(SecurityUtils.currentUserId(), file, params));
+    }
+
+    @PostMapping("/upscale")
+    public ApiResponse<UpscaleResponse> upscale(
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(value = "model", required = false, defaultValue = "anime") String model) {
+        return ApiResponse.success(conversionService.upscale(SecurityUtils.currentUserId(), file, model));
     }
 
     @GetMapping("/{id}")

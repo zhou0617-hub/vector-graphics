@@ -9,15 +9,17 @@ import { Sparkles, User, LogOut, ChevronDown } from 'lucide-react';
 
 const NAV_ITEMS = [
   { href: '/tools/image-to-svg', label: '图片转 SVG' },
+  { href: '/tools/image-upscale', label: 'AI 放大' },
   { href: '/my/files', label: '我的文件' },
 ];
 
 export function Header() {
   const router = useRouter();
   const pathname = usePathname();
-  const { user, logout } = useAuthStore();
+  const { user, logout, hydrated } = useAuthStore();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const hydratedRef = useRef(false);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -39,7 +41,7 @@ export function Header() {
 
   return (
     <header className="sticky top-0 z-50 backdrop-blur-xl bg-black/70 border-b border-white/5">
-      <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
+      <div className="w-full px-4 h-16 flex items-center justify-between">
         {/* 左侧：Logo + 导航卡片 */}
         <div className="flex items-center gap-6">
           <Link href="/" className="flex items-center gap-2 text-base font-semibold shrink-0 text-white">
@@ -63,7 +65,6 @@ export function Header() {
                   }`}
                 >
                   {item.label}
-                  {/* 选中指示条 */}
                   {active && (
                     <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-6 h-0.5 rounded-full bg-[#f9cf00]" />
                   )}
@@ -75,7 +76,7 @@ export function Header() {
 
         {/* 右侧：用户区 */}
         <div className="flex items-center gap-3 text-sm">
-          {user ? (
+          {hydrated && user ? (
             <div className="relative" ref={menuRef}>
               <button
                 onClick={() => setMenuOpen((v) => !v)}
@@ -83,21 +84,13 @@ export function Header() {
               >
                 <div className="w-7 h-7 rounded-full bg-gradient-to-br from-[#f9cf00] to-[#ff9500] flex items-center justify-center text-black text-xs font-bold overflow-hidden">
                   {user.avatarUrl ? (
-                    <img
-                      src={assetUrl(user.avatarUrl)}
-                      alt={user.username}
-                      className="w-full h-full object-cover"
-                    />
+                    <img src={assetUrl(user.avatarUrl)} alt={user.username} className="w-full h-full object-cover" />
                   ) : (
                     user.username[0].toUpperCase()
                   )}
                 </div>
                 <span className="text-white/90 max-w-[100px] truncate">{user.username}</span>
-                <ChevronDown
-                  className={`w-3.5 h-3.5 text-white/50 transition-transform ${
-                    menuOpen ? 'rotate-180' : ''
-                  }`}
-                />
+                <ChevronDown className={`w-3.5 h-3.5 text-white/50 transition-transform ${menuOpen ? 'rotate-180' : ''}`} />
               </button>
 
               {menuOpen && (
@@ -106,11 +99,7 @@ export function Header() {
                     <div className="flex items-center gap-3">
                       <div className="w-12 h-12 rounded-full bg-gradient-to-br from-[#f9cf00] to-[#ff9500] flex items-center justify-center text-black font-bold text-lg overflow-hidden">
                         {user.avatarUrl ? (
-                          <img
-                            src={assetUrl(user.avatarUrl)}
-                            alt={user.username}
-                            className="w-full h-full object-cover"
-                          />
+                          <img src={assetUrl(user.avatarUrl)} alt={user.username} className="w-full h-full object-cover" />
                         ) : (
                           user.username[0].toUpperCase()
                         )}
@@ -142,7 +131,7 @@ export function Header() {
                 </div>
               )}
             </div>
-          ) : (
+          ) : hydrated ? (
             <>
               <Link
                 href="/login"
@@ -150,11 +139,9 @@ export function Header() {
               >
                 登录
               </Link>
-              <Link href="/register" className="btn-primary">
-                注册
-              </Link>
+              <Link href="/register" className="btn-primary">注册</Link>
             </>
-          )}
+          ) : null}
         </div>
       </div>
     </header>
