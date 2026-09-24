@@ -31,6 +31,22 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.error(ErrorCode.BAD_REQUEST, msg));
     }
 
+    @ExceptionHandler({
+        org.springframework.web.context.request.async.AsyncRequestNotUsableException.class,
+        java.io.IOException.class
+    })
+    public void handleClientDisconnect(Exception e) {
+        String msg = e.getMessage() == null ? "" : e.getMessage();
+        if (msg.contains("Connection has been closed")
+            || msg.contains("Broken pipe")
+            || msg.contains("connection reset")
+            || msg.contains("Connection reset")) {
+            log.debug("客户端断开连接（用户可能取消了请求）");
+            return;
+        }
+        log.warn("IO 异常: {}", msg);
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Void>> handleAll(Exception e) {
         log.error("未处理异常", e);

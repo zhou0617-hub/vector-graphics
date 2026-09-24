@@ -1,4 +1,8 @@
-const BASE_URL =
+﻿from pathlib import Path
+
+path = Path(__file__).parent / "frontend" / "src" / "lib" / "api" / "client.ts"
+
+code = """const BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8080';
 
 export class ApiError extends Error {
@@ -96,3 +100,7 @@ export function assetUrl(p: string | null | undefined): string {
 }
 
 export const API_BASE_URL = BASE_URL;
+"""
+
+path.write_text(code, encoding="utf-8")
+print(f"  [重写] {path.relative_to(Path(__file__).parent)} - 加 5 分钟超时")

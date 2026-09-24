@@ -10,5 +10,5 @@ import org.springframework.stereotype.Component;
 public class VectorizerProperties {
 
     private String baseUrl = "http://localhost:8000";
-    private int timeoutMs = 60000;
+    private int timeoutMs = 300000;
 }

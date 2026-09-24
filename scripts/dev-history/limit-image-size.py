@@ -1,4 +1,8 @@
-import io
+﻿from pathlib import Path
+
+path = Path(__file__).parent / "vectorizer" / "app" / "services" / "engines" / "vtracer_engine.py"
+
+code = """import io
 import vtracer
 from PIL import Image
 
@@ -48,3 +52,7 @@ class VTracerEngine(VectorizerEngine):
             path_precision=options.path_precision,
         )
         return svg_str
+"""
+
+path.write_text(code, encoding="utf-8")
+print(f"  [重写] {path.relative_to(Path(__file__).parent)} - 加图片尺寸限制 1500px")

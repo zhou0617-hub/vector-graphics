@@ -1,16 +1,18 @@
-'use client';
+﻿'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { useRouter } from 'next/navigation';
 import { Header } from '@/components/layout/header';
 import { ImageViewer } from '@/components/image-viewer';
+import { ParticleProgress } from '@/components/particle-progress';
 import { convertImage } from '@/lib/api/conversion';
 import { assetUrl } from '@/lib/api/client';
 import { downloadFile } from '@/lib/utils';
+import { preloadImage } from '@/lib/utils/preload';
 import { useAuthStore } from '@/stores/auth-store';
 import type { ConvertResponse } from '@/types/api';
-import { ImagePlus, FolderUp, Download, X, ArrowRight, Loader2, ZoomIn, RefreshCw, Sparkles } from 'lucide-react';
+import { ImagePlus, FolderUp, Download, X, ArrowRight, Loader2, ZoomIn, RefreshCw, Sparkles, Clock, StopCircle } from 'lucide-react';
 
 const MODES = {
   standard: {
@@ -19,6 +21,7 @@ const MODES = {
     description: '快速矢量化，文件小，适合图标、Logo 等简单图形',
     suitable: '图标、Logo、简单插画',
     output: '文件最小，速度最快',
+    estimate: '约 1-5 秒',
     params: {
       color_precision: 6,
       layer_difference: 16,
@@ -34,6 +37,7 @@ const MODES = {
     description: '保留更多颜色和细节，适合有渐变的插画',
     suitable: '插画、有渐变的图片',
     output: '文件中等，细节丰富',
+    estimate: '约 5-30 秒',
     params: {
       color_precision: 7,
       layer_difference: 10,
@@ -46,14 +50,15 @@ const MODES = {
   ultra: {
     label: '超高清',
     short: '极致细节',
-    description: '最大程度还原细节，文件最大，适合专业场景',
+    description: '最大程度还原细节，渐变过渡更平滑，文件最大，适合专业场景',
     suitable: '需要印刷、专业设计',
-    output: '文件最大，细节最全',
+    output: '文件最大，渐变最平滑',
+    estimate: '约 1-3 分钟',
     params: {
       color_precision: 8,
-      layer_difference: 4,
-      length_threshold: 1.5,
-      filter_speckle: 1,
+      layer_difference: 2,
+      length_threshold: 1.2,
+      filter_speckle: 0,
       max_iterations: 30,
       splice_threshold: 20,
     },
@@ -65,15 +70,11 @@ const MODE_KEYS: ModeKey[] = ['standard', 'high', 'ultra'];
 
 function ModeSelector({ value, onChange }: { value: ModeKey; onChange: (v: ModeKey) => void }) {
   const index = MODE_KEYS.indexOf(value);
-
   return (
     <div className="relative grid grid-cols-3 w-[360px] rounded-full bg-white/5 border border-white/10 p-1 select-none">
       <div
         className="absolute top-1 bottom-1 rounded-full bg-[#f9cf00]/15 border border-[#f9cf00]/50 transition-all duration-300 ease-out pointer-events-none"
-        style={{
-          left: `calc(4px + ${index} * (100% - 8px) / 3)`,
-          width: `calc((100% - 8px) / 3)`,
-        }}
+        style={{ left: `calc(4px + ${index} * (100% - 8px) / 3)`, width: `calc((100% - 8px) / 3)` }}
       />
       {MODE_KEYS.map((key) => {
         const active = key === value;
@@ -89,7 +90,6 @@ function ModeSelector({ value, onChange }: { value: ModeKey; onChange: (v: ModeK
             >
               {mode.label}
             </button>
-
             <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 w-72 p-4 rounded-xl bg-[#15161a] border border-white/10 shadow-2xl opacity-0 invisible group-hover/mode:opacity-100 group-hover/mode:visible transition-all duration-200 pointer-events-none z-50">
               <div className="flex items-center gap-2.5 mb-3">
                 <span className="w-9 h-9 rounded-lg bg-[#f9cf00]/15 flex items-center justify-center text-[#f9cf00] shrink-0">
@@ -102,14 +102,9 @@ function ModeSelector({ value, onChange }: { value: ModeKey; onChange: (v: ModeK
               </div>
               <p className="text-xs text-white/70 leading-relaxed mb-3">{mode.description}</p>
               <div className="flex flex-col gap-1.5 text-xs pt-3 border-t border-white/5">
-                <div className="flex justify-between">
-                  <span className="text-white/40">适合</span>
-                  <span className="text-white/80">{mode.suitable}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-white/40">输出</span>
-                  <span className="text-white/60 text-[10px]">{mode.output}</span>
-                </div>
+                <div className="flex justify-between"><span className="text-white/40">适合</span><span className="text-white/80">{mode.suitable}</span></div>
+                <div className="flex justify-between"><span className="text-white/40">输出</span><span className="text-white/60 text-[10px]">{mode.output}</span></div>
+                <div className="flex justify-between items-center"><span className="text-white/40 flex items-center gap-1"><Clock className="w-3 h-3" /> 预计</span><span className="text-[#f9cf00] font-medium">{mode.estimate}</span></div>
               </div>
               <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-px w-3 h-3 bg-[#15161a] border-r border-b border-white/10 rotate-45" />
             </div>
@@ -133,22 +128,30 @@ export default function ImageToSvgPage() {
   const [viewerDownload, setViewerDownload] = useState<string | undefined>();
   const [downloading, setDownloading] = useState(false);
 
+  // 进度条
+  const [progress, setProgress] = useState(0);
+  const [showProgress, setShowProgress] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
+  const pendingResultRef = useRef<ConvertResponse | null>(null);
+  const progressTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   const onDrop = useCallback((accepted: File[]) => {
     const f = accepted[0];
     if (!f) return;
+    // 立即更新 UI 状态（按钮可用）
     setFile(f);
     setResult(null);
     setError('');
-    setPreview(URL.createObjectURL(f));
+    setPreview('');
+    // 延迟生成预览，避免阻塞主线程
+    setTimeout(() => {
+      setPreview(URL.createObjectURL(f));
+    }, 0);
   }, []);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
-    accept: {
-      'image/png': ['.png'],
-      'image/jpeg': ['.jpg', '.jpeg'],
-      'image/webp': ['.webp'],
-    },
+    accept: { 'image/png': ['.png'], 'image/jpeg': ['.jpg', '.jpeg'], 'image/webp': ['.webp'] },
     maxFiles: 1,
     maxSize: 10 * 1024 * 1024,
   });
@@ -157,15 +160,103 @@ export default function ImageToSvgPage() {
     e.stopPropagation();
     if (!token) { router.push('/login'); return; }
     if (!file) { setError('请先选择图片'); return; }
-    setLoading(true);
+
+    // 重置所有状态（防止上次残留）
+    pendingResultRef.current = null;
+    setProgress(0);
     setError('');
+    // 让进度条重新挂载
+    setShowProgress(false);
+    await new Promise((r) => setTimeout(r, 50));
+    setShowProgress(true);
+    const startTime = Date.now();
+    if (progressTimerRef.current) clearInterval(progressTimerRef.current);
+    progressTimerRef.current = setInterval(() => {
+      setProgress((p) => {
+        if (p >= 90) return 90;
+        const elapsed = Date.now() - startTime;
+        const target = elapsed < 5000 ? (elapsed / 5000) * 60 : 60 + Math.min(30, (elapsed - 5000) / 20000 * 30);
+        return Math.min(90, Math.max(p, target));
+      });
+    }, 200);
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    setLoading(true);
     try {
-      const res = await convertImage(file, MODES[mode].params);
-      if (res.status === 'success') { setResult(res); }
-      else { setError(res.message || '转换失败'); }
+      const res = await convertImage(file, MODES[mode].params, controller.signal);
+      if (res.status === 'success' && res.originalUrl && res.svgUrl) {
+        // 先预加载两张图
+        try {
+          await Promise.all([preloadImage(assetUrl(res.originalUrl)), preloadImage(assetUrl(res.svgUrl))]);
+        } catch (err) { console.warn('预加载失败', err); }
+        // 进度到 100%，粒子开始重组
+        setProgress(100);
+        // 等 2.2 秒（粒子重组 1.5s + 缓冲），然后直接显示结果
+        await new Promise((r) => setTimeout(r, 4000));
+        // 直接 setResult，不依赖 onRegatherComplete 回调
+        setResult(res);
+        setShowProgress(false);
+        setLoading(false);
+        if (progressTimerRef.current) {
+          clearInterval(progressTimerRef.current);
+          progressTimerRef.current = null;
+        }
+      } else {
+        setError(res.message || '转换失败');
+        if (progressTimerRef.current) {
+          clearInterval(progressTimerRef.current);
+          progressTimerRef.current = null;
+        }
+        setLoading(false);
+        setShowProgress(false);
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : '转换失败');
-    } finally { setLoading(false); }
+      if (progressTimerRef.current) {
+        clearInterval(progressTimerRef.current);
+        progressTimerRef.current = null;
+      }
+      setLoading(false);
+      setShowProgress(false);
+      if (err instanceof Error && err.name === 'AbortError') {
+        // 用户主动取消
+      } else {
+        setError(err instanceof Error ? err.message : '转换失败');
+      }
+    } finally {
+      abortRef.current = null;
+    }
+  };
+
+  const handleRegatherComplete = () => {
+    if (progressTimerRef.current) {
+      clearInterval(progressTimerRef.current);
+      progressTimerRef.current = null;
+    }
+    const res = pendingResultRef.current;
+    if (res) {
+      setResult(res);
+      pendingResultRef.current = null;
+    }
+    setLoading(false);
+    setShowProgress(false);
+    setProgress(0);
+  };
+
+  const handleCancel = () => {
+    if (abortRef.current) {
+      abortRef.current.abort();
+      abortRef.current = null;
+    }
+    if (progressTimerRef.current) {
+      clearInterval(progressTimerRef.current);
+      progressTimerRef.current = null;
+    }
+    pendingResultRef.current = null;
+    setProgress(0);
+    setShowProgress(false);
+    setLoading(false);
   };
 
   const handleDownloadSvg = async (e: React.MouseEvent) => {
@@ -189,8 +280,7 @@ export default function ImageToSvgPage() {
         <div className="relative max-w-5xl mx-auto">
           <div className="text-center mb-10">
             <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/10 text-sm text-[#f2f2f2]/70 mb-4">
-              <Sparkles className="w-4 h-4 text-[#f9cf00]" />
-              VTracer 矢量化
+              <Sparkles className="w-4 h-4 text-[#f9cf00]" /> VTracer 矢量化
             </div>
             <h1 className="text-3xl md:text-4xl font-bold mb-3">图片转 SVG</h1>
             <p className="text-[#f2f2f2]/50">上传图片，一键生成矢量图形</p>
@@ -200,9 +290,7 @@ export default function ImageToSvgPage() {
             <div className="glass-card rounded-2xl">
               <div
                 {...getRootProps()}
-                className={`group/upload cursor-pointer transition-all rounded-t-2xl ${
-                  isDragActive ? 'bg-[#f9cf00]/5' : 'hover:bg-white/[0.02]'
-                }`}
+                className={`group/upload cursor-pointer transition-all rounded-t-2xl ${isDragActive ? 'bg-[#f9cf00]/5' : 'hover:bg-white/[0.02]'}`}
               >
                 <input {...getInputProps()} />
                 <div className="py-16 px-6">
@@ -223,46 +311,26 @@ export default function ImageToSvgPage() {
                         <FolderUp className={`absolute w-10 h-10 text-[#f9cf00] transition-opacity duration-500 ${isDragActive ? 'opacity-100' : 'opacity-0 group-hover/upload:opacity-100'}`} />
                       </div>
                       <div className="relative h-7 mb-2">
-                        <span className={`absolute inset-0 flex items-center justify-center text-lg font-medium transition-opacity duration-500 ${isDragActive ? 'opacity-0' : 'opacity-100 group-hover/upload:opacity-0'}`}>
-                          快速生成图片
-                        </span>
-                        <span className={`absolute inset-0 flex items-center justify-center text-lg font-medium transition-opacity duration-500 ${isDragActive ? 'opacity-100' : 'opacity-0 group-hover/upload:opacity-100'}`}>
-                          {isDragActive ? '松开以上传' : '点击、拖拽或粘贴图片至此'}
-                        </span>
+                        <span className={`absolute inset-0 flex items-center justify-center text-lg font-medium transition-opacity duration-500 ${isDragActive ? 'opacity-0' : 'opacity-100 group-hover/upload:opacity-0'}`}>快速生成图片</span>
+                        <span className={`absolute inset-0 flex items-center justify-center text-lg font-medium transition-opacity duration-500 ${isDragActive ? 'opacity-100' : 'opacity-0 group-hover/upload:opacity-100'}`}>{isDragActive ? '松开以上传' : '点击、拖拽或粘贴图片至此'}</span>
                       </div>
-                      <p className="text-sm text-[#f2f2f2]/40">
-                        支持 PNG / JPG / WebP · 最大 10MB
-                      </p>
+                      <p className="text-sm text-[#f2f2f2]/40">支持 PNG / JPG / WebP · 最大 10MB</p>
                     </div>
                   )}
                 </div>
               </div>
-
               <div className="border-t border-dashed border-white/15" />
-
               <div className="p-4 rounded-b-2xl">
                 <div className="flex items-center justify-between gap-4 flex-wrap">
                   <ModeSelector value={mode} onChange={setMode} />
                   <div className="flex items-center gap-4 ml-auto">
-                    {file && (
-                      <span className="text-xs text-[#f2f2f2]/50 truncate max-w-[240px]">
-                        {file.name} · {(file.size / 1024).toFixed(1)} KB
-                      </span>
-                    )}
+                    {file && <span className="text-xs text-[#f2f2f2]/50 truncate max-w-[240px]">{file.name} · {(file.size / 1024).toFixed(1)} KB</span>}
                     <button onClick={handleConvert} disabled={loading || !file} className="btn-primary">
-                      {loading ? (
-                        <><Loader2 className="w-4 h-4 animate-spin" /> 转换中</>
-                      ) : (
-                        <>开始生成 <ArrowRight className="w-4 h-4" /></>
-                      )}
+                      {loading ? <><Loader2 className="w-4 h-4 animate-spin" /> 转换中</> : <>开始生成 <ArrowRight className="w-4 h-4" /></>}
                     </button>
                   </div>
                 </div>
-                {error && (
-                  <div className="mt-4 px-4 py-3 rounded-lg bg-red-500/10 border border-red-500/20 text-sm text-red-400">
-                    {error}
-                  </div>
-                )}
+                {error && <div className="mt-4 px-4 py-3 rounded-lg bg-red-500/10 border border-red-500/20 text-sm text-red-400">{error}</div>}
               </div>
             </div>
           ) : (
@@ -270,14 +338,9 @@ export default function ImageToSvgPage() {
               <div className="flex items-center justify-between mb-6">
                 <div className="flex items-center gap-3">
                   <h2 className="text-xl font-semibold">转换结果</h2>
-                  <span className="px-2.5 py-0.5 rounded-full bg-[#f9cf00]/15 border border-[#f9cf00]/40 text-[#f9cf00] text-xs font-medium">
-                    {MODES[mode].label}
-                  </span>
+                  <span className="px-2.5 py-0.5 rounded-full bg-[#f9cf00]/15 border border-[#f9cf00]/40 text-[#f9cf00] text-xs font-medium">{MODES[mode].label}</span>
                 </div>
-                <button
-                  onClick={clearAll}
-                  className="text-sm text-[#f2f2f2]/50 hover:text-[#f2f2f2] transition-colors flex items-center gap-1.5"
-                >
+                <button onClick={clearAll} className="text-sm text-[#f2f2f2]/50 hover:text-[#f2f2f2] transition-colors flex items-center gap-1.5">
                   <RefreshCw className="w-3.5 h-3.5" /> 转换新图片
                 </button>
               </div>
@@ -285,40 +348,23 @@ export default function ImageToSvgPage() {
               <div className="grid md:grid-cols-2 gap-6 mb-6">
                 <div className="flex flex-col">
                   <p className="text-sm text-[#f2f2f2]/50 mb-3">原图</p>
-                  <div
-                    className="relative rounded-xl overflow-hidden border border-white/10 bg-white/5 cursor-zoom-in group"
-                    style={{ aspectRatio: '1 / 1' }}
-                    onClick={() => openViewer(assetUrl(result.originalUrl)!)}
-                  >
-                    <img src={assetUrl(result.originalUrl)} alt="原图" className="absolute inset-0 w-full h-full object-contain p-2" />
-                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
-                      <ZoomIn className="w-6 h-6" />
-                    </div>
+                  <div className="relative rounded-xl overflow-hidden border border-white/10 bg-white/5 cursor-zoom-in group" style={{ aspectRatio: '1 / 1' }} onClick={() => openViewer(assetUrl(result.originalUrl)!)}>
+                    <img src={assetUrl(result.originalUrl)} alt="原图" loading="lazy" decoding="async" className="absolute inset-0 w-full h-full object-contain p-2" />
+                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100"><ZoomIn className="w-6 h-6" /></div>
                   </div>
                 </div>
-
                 <div className="flex flex-col">
                   <p className="text-sm text-[#f2f2f2]/50 mb-3">SVG</p>
-                  <div
-                    className="relative rounded-xl overflow-hidden border border-white/10 bg-white/5 cursor-zoom-in group"
-                    style={{ aspectRatio: '1 / 1' }}
-                    onClick={() => openViewer(assetUrl(result.svgUrl)!, assetUrl(result.svgUrl)!)}
-                  >
-                    <img src={assetUrl(result.svgUrl)} alt="SVG" className="absolute inset-0 w-full h-full object-contain p-2" />
-                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
-                      <ZoomIn className="w-6 h-6" />
-                    </div>
+                  <div className="relative rounded-xl overflow-hidden border border-white/10 bg-white/5 cursor-zoom-in group" style={{ aspectRatio: '1 / 1' }} onClick={() => openViewer(assetUrl(result.svgUrl)!, assetUrl(result.svgUrl)!)}>
+                    <img src={assetUrl(result.svgUrl)} alt="SVG" loading="lazy" decoding="async" className="absolute inset-0 w-full h-full object-contain p-2" />
+                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100"><ZoomIn className="w-6 h-6" /></div>
                   </div>
                 </div>
               </div>
 
               <div className="flex gap-3">
                 <button onClick={handleDownloadSvg} disabled={downloading} className="btn-primary">
-                  {downloading ? (
-                    <><Loader2 className="w-4 h-4 animate-spin" /> 下载中</>
-                  ) : (
-                    <><Download className="w-4 h-4" /> 下载 SVG</>
-                  )}
+                  {downloading ? <><Loader2 className="w-4 h-4 animate-spin" /> 下载中</> : <><Download className="w-4 h-4" /> 下载 SVG</>}
                 </button>
                 <button onClick={() => router.push('/my/files')} className="btn-secondary">查看我的文件</button>
               </div>
@@ -327,9 +373,33 @@ export default function ImageToSvgPage() {
         </div>
       </main>
 
-      {viewerSrc && (
-        <ImageViewer src={viewerSrc} alt="预览" downloadUrl={viewerDownload} onClose={() => setViewerSrc(null)} />
+      {/* 粒子进度条遮罩 */}
+      {showProgress && preview && (
+        <div className="fixed inset-0 z-[200] bg-black/88 backdrop-blur-md flex flex-col items-center justify-center px-4">
+          <div
+            className="w-full max-w-[900px]"
+            style={{ height: 'min(65vh, 600px)' }}
+          >
+            <ParticleProgress
+              imageUrl={preview}
+              progress={progress}
+              onRegatherComplete={handleRegatherComplete}
+            />
+          </div>
+          <div className="mt-6 text-center">
+            <p className="text-lg font-medium text-white mb-2">生成中... {Math.floor(progress)}%</p>
+            <p className="text-sm text-white/40 mb-4">{MODES[mode].label}模式 · 预计 {MODES[mode].estimate.replace('约 ', '')}</p>
+            <button
+              onClick={handleCancel}
+              className="inline-flex items-center gap-2 px-5 py-2 rounded-full bg-white/10 border border-white/15 text-white/80 hover:bg-white/15 transition-colors text-sm"
+            >
+              <StopCircle className="w-4 h-4" /> 终止转换
+            </button>
+          </div>
+        </div>
       )}
+
+      {viewerSrc && <ImageViewer src={viewerSrc} alt="预览" downloadUrl={viewerDownload} onClose={() => setViewerSrc(null)} />}
     </>
   );
 }
