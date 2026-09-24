@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import Delaunator from 'delaunator';
 
 interface ParticleProgressProps {
   imageUrl: string;
@@ -23,7 +22,12 @@ interface Particle {
   pushX: number;
   pushY: number;
   color: string;
-  isAnchor: boolean;
+}
+
+interface Ripple {
+  x: number;
+  y: number;
+  startTime: number;
 }
 
 type Stage = 'appear' | 'scatter' | 'scattered' | 'regather';
@@ -31,10 +35,23 @@ type Stage = 'appear' | 'scatter' | 'scattered' | 'regather';
 const APPEAR_DURATION = 800;
 const SCATTER_DURATION = 1800;
 const REGATHER_DURATION = 3200;
-const MOUSE_RADIUS = 100;
-const MOUSE_FORCE = 2.5;
-const MESH_UPDATE_INTERVAL = 3;
-const HIGHLIGHT_HOPS = 2;       // 从最近锚点延伸几跳高亮
+
+// 鼠标排斥（加强）
+const MOUSE_RADIUS = 150;
+const MOUSE_FORCE = 7.0;
+
+// 涟漪（加强，无光圈）
+const RIPPLE_DURATION = 1200;
+const RIPPLE_MAX_RADIUS = 420;
+const RIPPLE_BAND = 70;
+const RIPPLE_FORCE = 38;
+
+// 粒子互相排斥
+const PARTICLE_INTERACT_RADIUS = 16;
+const PARTICLE_INTERACT_FORCE = 0.9;
+
+// 空间网格
+const CELL_SIZE = 20;
 
 export function ParticleProgress({ imageUrl, progress, onRegatherComplete }: ParticleProgressProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -54,15 +71,11 @@ export function ParticleProgress({ imageUrl, progress, onRegatherComplete }: Par
     canvas.height = H;
 
     let particles: Particle[] = [];
-    let anchors: Particle[] = [];
-    let triangles: Delaunator<Float64Array> | null = null;
-    // 邻接表：锚点索引 -> 邻居索引集合
-    let adjacency: Map<number, Set<number>> = new Map();
+    let ripples: Ripple[] = [];
     let stage: Stage = 'appear';
     let stageStart = performance.now();
     let rafId = 0;
     let cancelled = false;
-    let frameCount = 0;
     let mouseX = -9999;
     let mouseY = -9999;
 
@@ -85,7 +98,7 @@ export function ParticleProgress({ imageUrl, progress, onRegatherComplete }: Par
       tmpCtx.drawImage(img, 0, 0, imgW, imgH);
       const data = tmpCtx.getImageData(0, 0, imgW, imgH).data;
 
-      const step = 11;
+      const step = 5;
       const list: Particle[] = [];
       for (let y = 0; y < imgH; y += step) {
         for (let x = 0; x < imgW; x += step) {
@@ -97,19 +110,11 @@ export function ParticleProgress({ imageUrl, progress, onRegatherComplete }: Par
               tx, ty, rx: tx, ry: ty, ox: tx, oy: ty,
               x: tx, y: ty, vx: 0, vy: 0, pushX: 0, pushY: 0,
               color: `rgb(${data[i]},${data[i + 1]},${data[i + 2]})`,
-              isAnchor: false,
             });
           }
         }
       }
-
-      for (let i = 0; i < list.length; i++) {
-        if (Math.random() < 0.3) {
-          list[i].isAnchor = true;
-        }
-      }
       particles = list;
-      anchors = list.filter((p) => p.isAnchor);
     };
     img.src = imageUrl;
 
@@ -131,148 +136,70 @@ export function ParticleProgress({ imageUrl, progress, onRegatherComplete }: Par
       mouseX = -9999;
       mouseY = -9999;
     };
+    const handleClick = (e: MouseEvent) => {
+      const r = canvas.getBoundingClientRect();
+      ripples.push({
+        x: e.clientX - r.left,
+        y: e.clientY - r.top,
+        startTime: performance.now(),
+      });
+    };
+
     canvas.addEventListener('mousemove', handleMouseMove);
     canvas.addEventListener('mouseleave', handleMouseLeave);
+    canvas.addEventListener('click', handleClick);
 
-    // ---------- 三角网格 + 邻接表 ----------
-    const updateTriangles = () => {
-      if (anchors.length < 3) return;
-      const coords = new Float64Array(anchors.length * 2);
-      for (let i = 0; i < anchors.length; i++) {
-        coords[i * 2] = anchors[i].x;
-        coords[i * 2 + 1] = anchors[i].y;
-      }
-      try {
-        triangles = new Delaunator(coords);
-        // 构建邻接表
-        adjacency = new Map();
-        const tri = triangles.triangles;
-        for (let i = 0; i < tri.length; i += 3) {
-          const a = tri[i];
-          const b = tri[i + 1];
-          const c = tri[i + 2];
-          addEdge(a, b);
-          addEdge(b, c);
-          addEdge(c, a);
+    // 空间哈希网格（复用 Map，避免每帧创建）
+    const grid: Map<number, number[]> = new Map();
+    const cellKey = (cx: number, cy: number) => cy * 100000 + cx;
+
+    const buildGrid = () => {
+      grid.clear();
+      for (let i = 0; i < particles.length; i++) {
+        const p = particles[i];
+        const cx = Math.floor(p.x / CELL_SIZE);
+        const cy = Math.floor(p.y / CELL_SIZE);
+        const key = cellKey(cx, cy);
+        let bucket = grid.get(key);
+        if (!bucket) {
+          bucket = [];
+          grid.set(key, bucket);
         }
-      } catch {
-        triangles = null;
-        adjacency = new Map();
+        bucket.push(i);
       }
     };
 
-    const addEdge = (a: number, b: number) => {
-      if (!adjacency.has(a)) adjacency.set(a, new Set());
-      if (!adjacency.has(b)) adjacency.set(b, new Set());
-      adjacency.get(a)!.add(b);
-      adjacency.get(b)!.add(a);
-    };
+    // 粒子互相排斥
+    const applyParticleInteractions = () => {
+      const R = PARTICLE_INTERACT_RADIUS;
+      const R2 = R * R;
+      for (let i = 0; i < particles.length; i++) {
+        const a = particles[i];
+        const cx = Math.floor(a.x / CELL_SIZE);
+        const cy = Math.floor(a.y / CELL_SIZE);
 
-    // 计算从鼠标最近锚点出发，沿网格延伸的跳数
-    const computeHopMap = (): Map<number, number> => {
-      const hopMap = new Map<number, number>();
-      if (!triangles || anchors.length === 0) return hopMap;
-      if (mouseX < 0 || mouseY < 0) return hopMap;
-
-      // 找最近锚点
-      let nearestIdx = -1;
-      let nearestDistSq = Infinity;
-      for (let i = 0; i < anchors.length; i++) {
-        const dx = anchors[i].x - mouseX;
-        const dy = anchors[i].y - mouseY;
-        const d2 = dx * dx + dy * dy;
-        if (d2 < nearestDistSq) {
-          nearestDistSq = d2;
-          nearestIdx = i;
-        }
-      }
-      if (nearestIdx < 0) return hopMap;
-
-      // BFS
-      const queue: number[] = [nearestIdx];
-      hopMap.set(nearestIdx, 0);
-      while (queue.length > 0) {
-        const cur = queue.shift()!;
-        const curHop = hopMap.get(cur)!;
-        if (curHop >= HIGHLIGHT_HOPS) continue;
-        const neighbors = adjacency.get(cur);
-        if (!neighbors) continue;
-        for (const n of neighbors) {
-          if (!hopMap.has(n)) {
-            hopMap.set(n, curHop + 1);
-            queue.push(n);
+        for (let dx = -1; dx <= 1; dx++) {
+          for (let dy = -1; dy <= 1; dy++) {
+            const bucket = grid.get(cellKey(cx + dx, cy + dy));
+            if (!bucket) continue;
+            for (const j of bucket) {
+              if (j <= i) continue;
+              const b = particles[j];
+              const ddx = a.x - b.x;
+              const ddy = a.y - b.y;
+              const d2 = ddx * ddx + ddy * ddy;
+              if (d2 >= R2 || d2 < 0.01) continue;
+              const dist = Math.sqrt(d2);
+              const force = (1 - dist / R) * PARTICLE_INTERACT_FORCE;
+              const nx = ddx / dist;
+              const ny = ddy / dist;
+              a.pushX += nx * force;
+              a.pushY += ny * force;
+              b.pushX -= nx * force;
+              b.pushY -= ny * force;
+            }
           }
         }
-      }
-      return hopMap;
-    };
-
-    const drawTriangleMesh = () => {
-      if (!triangles) return;
-      const tri = triangles.triangles;
-      const coords = triangles.coords;
-      const hopMap = computeHopMap();
-      const hasHighlight = hopMap.size > 0;
-
-      // 灰色网格：每 3 个三角形跳过 1 个
-      ctx.strokeStyle = 'rgba(220,220,220,0.18)';
-      ctx.lineWidth = 0.6;
-      ctx.beginPath();
-      for (let i = 0; i < tri.length; i += 3) {
-        const triIdx = i / 3;
-        if (triIdx % 3 === 2) continue;
-
-        const a = tri[i];
-        const b = tri[i + 1];
-        const c = tri[i + 2];
-
-        const ax = coords[a * 2];
-        const ay = coords[a * 2 + 1];
-        const bx = coords[b * 2];
-        const by = coords[b * 2 + 1];
-        const cx = coords[c * 2];
-        const cy = coords[c * 2 + 1];
-
-        ctx.moveTo(ax, ay);
-        ctx.lineTo(bx, by);
-        ctx.lineTo(cx, cy);
-        ctx.closePath();
-      }
-      ctx.stroke();
-
-      // 金色高亮：跳数内的三角形
-      if (hasHighlight) {
-        ctx.strokeStyle = 'rgba(249,207,0,0.6)';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        for (let i = 0; i < tri.length; i += 3) {
-          const a = tri[i];
-          const b = tri[i + 1];
-          const c = tri[i + 2];
-
-          const hopA = hopMap.get(a);
-          const hopB = hopMap.get(b);
-          const hopC = hopMap.get(c);
-          // 至少一个顶点在跳数范围内，且不超过范围
-          const inRange =
-            (hopA !== undefined && hopA <= HIGHLIGHT_HOPS) ||
-            (hopB !== undefined && hopB <= HIGHLIGHT_HOPS) ||
-            (hopC !== undefined && hopC <= HIGHLIGHT_HOPS);
-          if (!inRange) continue;
-
-          const ax = coords[a * 2];
-          const ay = coords[a * 2 + 1];
-          const bx = coords[b * 2];
-          const by = coords[b * 2 + 1];
-          const cx = coords[c * 2];
-          const cy = coords[c * 2 + 1];
-
-          ctx.moveTo(ax, ay);
-          ctx.lineTo(bx, by);
-          ctx.lineTo(cx, cy);
-          ctx.closePath();
-        }
-        ctx.stroke();
       }
     };
 
@@ -286,7 +213,6 @@ export function ParticleProgress({ imageUrl, progress, onRegatherComplete }: Par
       }
 
       const elapsed = now - stageStart;
-      frameCount++;
 
       switch (stage) {
         case 'appear':
@@ -324,22 +250,55 @@ export function ParticleProgress({ imageUrl, progress, onRegatherComplete }: Par
             if (p.oy > H - 2) { p.oy = H - 2; p.vy = -Math.abs(p.vy); }
           }
 
+          // 鼠标排斥（平方衰减，更有冲击感）
           if (mouseX > 0 && mouseY > 0) {
             for (const p of particles) {
               const dx = p.ox + p.pushX - mouseX;
               const dy = p.oy + p.pushY - mouseY;
               const dist = Math.sqrt(dx * dx + dy * dy);
               if (dist < MOUSE_RADIUS && dist > 0.5) {
-                const force = (1 - dist / MOUSE_RADIUS) * MOUSE_FORCE;
+                const falloff = 1 - dist / MOUSE_RADIUS;
+                const force = falloff * falloff * MOUSE_FORCE;
                 p.pushX += (dx / dist) * force;
                 p.pushY += (dy / dist) * force;
               }
             }
           }
 
+          // 涟漪
+          ripples = ripples.filter((r) => (now - r.startTime) / RIPPLE_DURATION < 1);
+          for (const r of ripples) {
+            const t = (now - r.startTime) / RIPPLE_DURATION;
+            const waveRadius = t * RIPPLE_MAX_RADIUS;
+            const decay = 1 - t;
+
+            for (const p of particles) {
+              const dx = p.ox + p.pushX - r.x;
+              const dy = p.oy + p.pushY - r.y;
+              const dist = Math.sqrt(dx * dx + dy * dy);
+              if (dist < 0.5) continue;
+              const bandDist = Math.abs(dist - waveRadius);
+              if (bandDist < RIPPLE_BAND) {
+                const falloff = 1 - bandDist / RIPPLE_BAND;
+                const force = falloff * falloff * RIPPLE_FORCE * decay;
+                p.pushX += (dx / dist) * force;
+                p.pushY += (dy / dist) * force;
+              }
+            }
+          }
+
+          // 应用阻尼
           for (const p of particles) {
-            p.pushX *= 0.92;
-            p.pushY *= 0.92;
+            p.pushX *= 0.9;
+            p.pushY *= 0.9;
+          }
+
+          // 构建网格 + 粒子互斥
+          buildGrid();
+          applyParticleInteractions();
+
+          // 位置更新
+          for (const p of particles) {
             p.x = p.ox + p.pushX;
             p.y = p.oy + p.pushY;
             clampToCanvas(p, W, H);
@@ -367,13 +326,7 @@ export function ParticleProgress({ imageUrl, progress, onRegatherComplete }: Par
         }
       }
 
-      if (stage === 'scattered' || stage === 'regather') {
-        if (frameCount % MESH_UPDATE_INTERVAL === 0 || !triangles) {
-          updateTriangles();
-        }
-        drawTriangleMesh();
-      }
-
+      // 绘制粒子
       for (const p of particles) {
         ctx.fillStyle = p.color;
         ctx.fillRect(p.x | 0, p.y | 0, 2, 2);
@@ -389,6 +342,7 @@ export function ParticleProgress({ imageUrl, progress, onRegatherComplete }: Par
       cancelAnimationFrame(rafId);
       canvas.removeEventListener('mousemove', handleMouseMove);
       canvas.removeEventListener('mouseleave', handleMouseLeave);
+      canvas.removeEventListener('click', handleClick);
     };
   }, [imageUrl]);
 

@@ -5,10 +5,13 @@ import com.svgplatform.common.response.ApiResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 @Slf4j
 @RestControllerAdvice
@@ -29,6 +32,30 @@ public class GlobalExceptionHandler {
         return ResponseEntity
                 .status(HttpStatus.OK)
                 .body(ApiResponse.error(ErrorCode.BAD_REQUEST, msg));
+    }
+
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ApiResponse<Void>> handleJsonParse(HttpMessageNotReadableException e) {
+        log.warn("请求体解析失败: {}", e.getMessage());
+        return ResponseEntity
+                .status(HttpStatus.OK)
+                .body(ApiResponse.error(ErrorCode.BAD_REQUEST, "请求体格式错误"));
+    }
+
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMissingParam(MissingServletRequestParameterException e) {
+        log.warn("缺少请求参数: {}", e.getParameterName());
+        return ResponseEntity
+                .status(HttpStatus.OK)
+                .body(ApiResponse.error(ErrorCode.BAD_REQUEST, "缺少参数: " + e.getParameterName()));
+    }
+
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ApiResponse<Void>> handleTypeMismatch(MethodArgumentTypeMismatchException e) {
+        log.warn("参数类型不匹配: {} = {}", e.getName(), e.getValue());
+        return ResponseEntity
+                .status(HttpStatus.OK)
+                .body(ApiResponse.error(ErrorCode.BAD_REQUEST, "参数类型错误: " + e.getName()));
     }
 
     @ExceptionHandler({

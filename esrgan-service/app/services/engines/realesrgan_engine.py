@@ -1,4 +1,4 @@
-﻿import io
+import io
 
 import numpy as np
 import torch
@@ -12,8 +12,18 @@ from app.services.engines.base import UpscaleEngine
 
 def _detect_device():
     if torch.cuda.is_available():
-        return torch.device("cuda"), True
-    return torch.device("cpu"), False
+        try:
+            vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
+        except Exception:
+            vram_gb = 4
+        if vram_gb < 6:
+            tile_size = 200
+        elif vram_gb < 12:
+            tile_size = 400
+        else:
+            tile_size = 512
+        return torch.device("cuda"), True, tile_size
+    return torch.device("cpu"), False, 400
 
 
 class RealESRGANEngine(UpscaleEngine):
@@ -46,17 +56,15 @@ class RealESRGANEngine(UpscaleEngine):
         self._name = model_key
         self._scale = cfg["scale"]
 
-        device, use_half = _detect_device()
-        is_gpu = device.type == "cuda"
-        tile = 0 if is_gpu else 400
+        device, use_half, tile_size = _detect_device()
 
-        print(f"[RealESRGANEngine] model={model_key} device={device} half={use_half} tile={tile}")
+        print(f"[RealESRGANEngine] model={model_key} device={device} half={use_half} tile={tile_size}")
 
         self._upsampler = RealESRGANer(
             scale=cfg["scale"],
             model_path=cfg["path"],
             model=cfg["arch"],
-            tile=tile,
+            tile=tile_size,
             tile_pad=10,
             pre_pad=0,
             half=use_half,
