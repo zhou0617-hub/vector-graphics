@@ -84,3 +84,6 @@ esrgan-service/__pycache__/
 docs/*.docx
 技术栈.docx
 setup-*.js
+
+# Word 文档（pandoc 生成，不入库）
+*.docx
