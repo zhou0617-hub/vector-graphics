@@ -6,10 +6,8 @@ import com.svgplatform.common.exception.BusinessException;
 import com.svgplatform.infrastructure.storage.StorageService;
 import com.svgplatform.infrastructure.vectorizer.VectorizerClient;
 import com.svgplatform.infrastructure.esrgan.EsrganClient;
+import com.svgplatform.modules.conversion.dto.ConversionResponse;
 import com.svgplatform.modules.conversion.dto.UpscaleResponse;
-import java.io.ByteArrayInputStream;
-import javax.imageio.ImageIO;
-import java.awt.image.BufferedImage;
 import com.svgplatform.modules.conversion.dto.ConvertResponse;
 import com.svgplatform.modules.conversion.entity.Conversion;
 import com.svgplatform.modules.conversion.repository.ConversionMapper;
@@ -21,6 +19,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Set;
@@ -35,7 +37,6 @@ public class ConversionService {
 
     private static final Set<String> ALLOWED_FORMATS = Set.of("PNG", "JPEG", "JPG", "WEBP");
     private static final long MAX_SIZE = 10 * 1024 * 1024L;
-    private static final Pattern SVG_WIDTH = Pattern.compile("width=\"(\\d+)\"");
 
     private final FileMapper fileMapper;
     private final ConversionMapper conversionMapper;
@@ -53,7 +54,6 @@ public class ConversionService {
         String datePath = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy/MM"));
         String baseName = UUID.randomUUID().toString().replace("-", "");
 
-        // 1. 保存原图
         byte[] imageBytes;
         try {
             imageBytes = file.getBytes();
@@ -64,17 +64,16 @@ public class ConversionService {
         String originalRelative = datePath + "/" + baseName + "." + ext.toLowerCase();
         storageService.store(imageBytes, originalRelative);
 
-        // 2. 创建 files 记录
         FileEntity fileEntity = new FileEntity();
         fileEntity.setUserId(userId);
         fileEntity.setName(originalName);
         fileEntity.setOriginalUrl(storageService.getPublicUrl(originalRelative));
         fileEntity.setFormat(format);
+        fileEntity.setSource("convert");
         fileEntity.setSize((long) imageBytes.length);
         fileEntity.setStatus("normal");
         fileMapper.insert(fileEntity);
 
-        // 3. 创建 conversions 记录
         Conversion conv = new Conversion();
         conv.setUserId(userId);
         conv.setFileId(fileEntity.getId());
@@ -84,7 +83,6 @@ public class ConversionService {
         conv.setParamsJson(params);
         conversionMapper.insert(conv);
 
-        // 4. 调用矢量化服务
         String svg;
         try {
             svg = vectorizerClient.vectorize(imageBytes, originalName, params);
@@ -102,12 +100,10 @@ public class ConversionService {
             return resp;
         }
 
-        // 5. 保存 SVG
         String svgRelative = datePath + "/" + baseName + ".svg";
-        storageService.store(svg.getBytes(java.nio.charset.StandardCharsets.UTF_8), svgRelative);
+        storageService.store(svg.getBytes(StandardCharsets.UTF_8), svgRelative);
         String svgUrl = storageService.getPublicUrl(svgRelative);
 
-        // 6. 更新记录
         fileEntity.setSvgUrl(svgUrl);
         Integer width = parseDimension(svg, "width");
         Integer height = parseDimension(svg, "height");
@@ -120,7 +116,6 @@ public class ConversionService {
         conv.setFinishedAt(LocalDateTime.now());
         conversionMapper.updateById(conv);
 
-        // 7. 返回
         ConvertResponse resp = new ConvertResponse();
         resp.setConversionId(conv.getId());
         resp.setFileId(fileEntity.getId());
@@ -133,7 +128,7 @@ public class ConversionService {
         return resp;
     }
 
-    public Conversion getById(Long userId, Long id) {
+    public ConversionResponse getById(Long userId, Long id) {
         Conversion conv = conversionMapper.selectOne(
                 new LambdaQueryWrapper<Conversion>()
                         .eq(Conversion::getId, id)
@@ -142,7 +137,22 @@ public class ConversionService {
         if (conv == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "转换记录不存在");
         }
-        return conv;
+        return toResponse(conv);
+    }
+
+    private ConversionResponse toResponse(Conversion conv) {
+        ConversionResponse resp = new ConversionResponse();
+        resp.setId(conv.getId());
+        resp.setFileId(conv.getFileId());
+        resp.setSourceFormat(conv.getSourceFormat());
+        resp.setTargetFormat(conv.getTargetFormat());
+        resp.setStatus(conv.getStatus());
+        resp.setParamsJson(conv.getParamsJson());
+        resp.setResultUrl(conv.getResultUrl());
+        resp.setErrorMessage(conv.getErrorMessage());
+        resp.setCreatedAt(conv.getCreatedAt());
+        resp.setFinishedAt(conv.getFinishedAt());
+        return resp;
     }
 
     private void validate(MultipartFile file) {
@@ -180,6 +190,7 @@ public class ConversionService {
     @Transactional
     public UpscaleResponse upscale(Long userId, MultipartFile file, String model) {
         validate(file);
+
         String originalName = file.getOriginalFilename() == null ? "upload" : file.getOriginalFilename();
         String ext = extractExt(originalName);
         String format = ext.toUpperCase();
@@ -187,7 +198,11 @@ public class ConversionService {
         String baseName = UUID.randomUUID().toString().replace("-", "");
 
         byte[] imageBytes;
-        try { imageBytes = file.getBytes(); } catch (Exception e) { throw new BusinessException("读取文件失败"); }
+        try {
+            imageBytes = file.getBytes();
+        } catch (Exception e) {
+            throw new BusinessException("读取文件失败");
+        }
 
         String originalRelative = datePath + "/" + baseName + "." + ext.toLowerCase();
         storageService.store(imageBytes, originalRelative);
@@ -202,10 +217,24 @@ public class ConversionService {
         fileEntity.setStatus("normal");
         fileMapper.insert(fileEntity);
 
+        Conversion conv = new Conversion();
+        conv.setUserId(userId);
+        conv.setFileId(fileEntity.getId());
+        conv.setSourceFormat(format);
+        conv.setTargetFormat("UPSCALED");
+        conv.setStatus("processing");
+        conv.setParamsJson("{\"model\":\"" + model + "\"}");
+        conversionMapper.insert(conv);
+
         byte[] upscaledBytes;
         try {
             upscaledBytes = esrganClient.upscale(imageBytes, originalName, model);
         } catch (BusinessException e) {
+            conv.setStatus("failed");
+            conv.setErrorMessage(e.getMessage());
+            conv.setFinishedAt(LocalDateTime.now());
+            conversionMapper.updateById(conv);
+
             UpscaleResponse resp = new UpscaleResponse();
             resp.setFileId(fileEntity.getId());
             resp.setStatus("failed");
@@ -221,13 +250,22 @@ public class ConversionService {
         Integer width = null, height = null;
         try {
             BufferedImage img = ImageIO.read(new ByteArrayInputStream(upscaledBytes));
-            if (img != null) { width = img.getWidth(); height = img.getHeight(); }
-        } catch (Exception ignored) {}
+            if (img != null) {
+                width = img.getWidth();
+                height = img.getHeight();
+            }
+        } catch (Exception ignored) {
+        }
 
         fileEntity.setSvgUrl(upscaledUrl);
         fileEntity.setWidth(width);
         fileEntity.setHeight(height);
         fileMapper.updateById(fileEntity);
+
+        conv.setStatus("success");
+        conv.setResultUrl(upscaledUrl);
+        conv.setFinishedAt(LocalDateTime.now());
+        conversionMapper.updateById(conv);
 
         UpscaleResponse resp = new UpscaleResponse();
         resp.setFileId(fileEntity.getId());

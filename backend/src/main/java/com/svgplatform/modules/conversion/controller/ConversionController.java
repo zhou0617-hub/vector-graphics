@@ -1,9 +1,9 @@
 package com.svgplatform.modules.conversion.controller;
 
 import com.svgplatform.common.response.ApiResponse;
+import com.svgplatform.modules.conversion.dto.ConversionResponse;
 import com.svgplatform.modules.conversion.dto.ConvertResponse;
 import com.svgplatform.modules.conversion.dto.UpscaleResponse;
-import com.svgplatform.modules.conversion.entity.Conversion;
 import com.svgplatform.modules.conversion.service.ConversionService;
 import com.svgplatform.security.SecurityUtils;
 import lombok.RequiredArgsConstructor;
@@ -39,7 +39,7 @@ public class ConversionController {
     }
 
     @GetMapping("/{id}")
-    public ApiResponse<Conversion> getById(@PathVariable Long id) {
+    public ApiResponse<ConversionResponse> getById(@PathVariable Long id) {
         return ApiResponse.success(conversionService.getById(SecurityUtils.currentUserId(), id));
     }
 }
