@@ -5,12 +5,11 @@ import { useRouter, usePathname } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { useAuthStore } from '@/stores/auth-store';
 import { assetUrl } from '@/lib/api/client';
-import { Sparkles, User, LogOut, ChevronDown, Search } from 'lucide-react';
+import { Sparkles, User, LogOut, ChevronDown } from 'lucide-react';
 
 const NAV_ITEMS = [
   { href: '/tools/image-to-svg', label: '图片转 SVG' },
   { href: '/tools/image-upscale', label: 'AI 放大' },
-  { href: '/community', label: '社区' },
   { href: '/my/files', label: '我的文件' },
 ];
 
@@ -20,6 +19,7 @@ export function Header() {
   const { user, logout, hydrated } = useAuthStore();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const hydratedRef = useRef(false);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -42,7 +42,7 @@ export function Header() {
   return (
     <header className="sticky top-0 z-50 backdrop-blur-xl bg-black/70 border-b border-white/5">
       <div className="w-full px-4 h-16 flex items-center justify-between">
-        {/* 左侧：Logo + 导航 */}
+        {/* 左侧：Logo + 导航卡片 */}
         <div className="flex items-center gap-6">
           <Link href="/" className="flex items-center gap-2 text-base font-semibold shrink-0 text-white">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#f9cf00] to-[#ff9500] flex items-center justify-center">
@@ -74,16 +74,8 @@ export function Header() {
           </nav>
         </div>
 
-        {/* 右侧：搜索图标 + 用户区 */}
+        {/* 右侧：用户区 */}
         <div className="flex items-center gap-3 text-sm">
-          <Link
-            href="/community/search"
-            className="p-2 rounded-lg text-white/70 hover:text-white hover:bg-white/5 transition-colors"
-            title="搜索社区"
-          >
-            <Search className="w-4 h-4" />
-          </Link>
-
           {hydrated && user ? (
             <div className="relative" ref={menuRef}>
               <button

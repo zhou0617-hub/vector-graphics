@@ -1,0 +1,162 @@
+package com.svgplatform.modules.community.controller;
+
+import com.svgplatform.common.response.ApiResponse;
+import com.svgplatform.common.response.PageResponse;
+import com.svgplatform.modules.community.dto.*;
+import com.svgplatform.modules.community.service.PostService;
+import com.svgplatform.security.SecurityUtils;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+/**
+ * 社区作品接口。
+ * <p>
+ * 读接口（列表、详情、排行）对未登录用户开放；
+ * 写接口（发布、编辑、删除）需登录，且仅能操作自己的作品。
+ */
+@RestController
+@RequestMapping("/api/community/posts")
+@RequiredArgsConstructor
+public class PostController {
+
+    private final PostService postService;
+
+    // ==================== 读接口 ====================
+
+    /**
+     * 广场作品列表。
+     *
+     * @param sort 排序：latest / like / comment / favorite / hot
+     */
+    @GetMapping
+    public ApiResponse<PageResponse<PostResponse>> list(
+            @RequestParam(value = "sort", required = false, defaultValue = "latest") String sort,
+            @RequestParam(value = "page", required = false, defaultValue = "1") int page,
+            @RequestParam(value = "size", required = false, defaultValue = "20") int size,
+            @RequestParam(value = "tagId", required = false) Long tagId) {
+        return ApiResponse.success(postService.list(sort, page, size, tagId));
+    }
+
+    /**
+     * 热度排行。
+     *
+     * @param period day / week / month / year / all
+     */
+    @GetMapping("/ranking")
+    public ApiResponse<List<PostResponse>> ranking(
+            @RequestParam(value = "period", required = false, defaultValue = "day") String period,
+            @RequestParam(value = "limit", required = false, defaultValue = "50") int limit) {
+        return ApiResponse.success(postService.ranking(period, limit));
+    }
+
+    /**
+     * 作品详情。
+     */
+    @GetMapping("/{id}")
+    public ApiResponse<PostDetailResponse> detail(@PathVariable("id") Long id) {
+        return ApiResponse.success(postService.getDetail(currentUserIdOrNull(), id));
+    }
+
+    /**
+     * 某用户的作品列表。
+     */
+    @GetMapping("/user/{userId}")
+    public ApiResponse<PageResponse<PostResponse>> listByUser(
+            @PathVariable("userId") Long userId,
+            @RequestParam(value = "page", required = false, defaultValue = "1") int page,
+            @RequestParam(value = "size", required = false, defaultValue = "20") int size) {
+        return ApiResponse.success(postService.listByUser(userId, page, size));
+    }
+
+    /**
+     * 某用户点赞过的帖子。
+     */
+    @GetMapping("/user/{userId}/liked")
+    public ApiResponse<PageResponse<PostResponse>> listLikedByUser(
+            @PathVariable("userId") Long userId,
+            @RequestParam(value = "page", required = false, defaultValue = "1") int page,
+            @RequestParam(value = "size", required = false, defaultValue = "20") int size) {
+        return ApiResponse.success(postService.listLikedByUser(userId, page, size));
+    }
+
+    /**
+     * 某用户收藏过的帖子。
+     */
+    @GetMapping("/user/{userId}/favorited")
+    public ApiResponse<PageResponse<PostResponse>> listFavoritedByUser(
+            @PathVariable("userId") Long userId,
+            @RequestParam(value = "page", required = false, defaultValue = "1") int page,
+            @RequestParam(value = "size", required = false, defaultValue = "20") int size) {
+        return ApiResponse.success(postService.listFavoritedByUser(userId, page, size));
+    }
+
+    /**
+     * 某用户发表的评论。
+     */
+    @GetMapping("/user/{userId}/comments")
+    public ApiResponse<PageResponse<com.svgplatform.modules.community.dto.UserCommentResponse>> listCommentsByUser(
+            @PathVariable("userId") Long userId,
+            @RequestParam(value = "page", required = false, defaultValue = "1") int page,
+            @RequestParam(value = "size", required = false, defaultValue = "20") int size) {
+        return ApiResponse.success(postService.listCommentsByUser(userId, page, size));
+    }
+
+    // ==================== 写接口 ====================
+
+    /**
+     * 发布作品。
+     */
+    @PostMapping
+    public ApiResponse<PostDetailResponse> create(@Valid @RequestBody PostCreateRequest req) {
+        return ApiResponse.success(postService.create(SecurityUtils.currentUserId(), req));
+    }
+
+    /**
+     * 编辑作品。
+     */
+    @PatchMapping("/{id}")
+    public ApiResponse<PostDetailResponse> update(
+            @PathVariable("id") Long id,
+            @Valid @RequestBody PostUpdateRequest req) {
+        return ApiResponse.success(postService.update(SecurityUtils.currentUserId(), id, req));
+    }
+
+    /**
+     * 浏览量 +1。前端详情页挂载时调用一次。无需登录。
+     */
+    @PostMapping("/{id}/view")
+    public ApiResponse<Void> view(@PathVariable("id") Long id) {
+        postService.incrementView(id);
+        return ApiResponse.success();
+    }
+
+    /**
+     * 删除作品（软删除）。
+     */
+    @DeleteMapping("/{id}")
+    public ApiResponse<Void> delete(@PathVariable("id") Long id) {
+        postService.delete(SecurityUtils.currentUserId(), id);
+        return ApiResponse.success();
+    }
+
+    // ==================== 内部工具 ====================
+
+    /**
+     * 尝试取当前登录用户 ID；未登录返回 null。
+     * 用于详情接口需要区分"未登录"和"已登录"的场景。
+     */
+    private Long currentUserIdOrNull() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated()) return null;
+        Object principal = auth.getPrincipal();
+        if (principal instanceof com.svgplatform.security.UserPrincipal p) {
+            return p.getId();
+        }
+        return null;
+    }
+}

@@ -177,20 +177,163 @@ https://github.com/zhou0617-hub/vector-graphics
 
 ---
 
-## 十三、给 AI 的开场提示
+## 十三、开新会话时提供什么
 
-新会话第一句：
+新会话开始前，按下面清单准备信息，AI 能在 2-5 分钟内进入工作状态。
+
+### 13.1 必须给的（缺一不可）
+
+**1. 两条路径**
 
 ```
 项目路径：C:\Users\z1804\Desktop\vector-graphics
-
-附件：00-project-status.md + 07-ai开发规范.md（其他文档按需索取）
-
-当前任务：<说明>
-
-当前状态：<服务是否在跑、有无报错、有无未提交改动>
-
-要求：见 07-ai开发规范.md
+文档路径：C:\Users\z1804\Desktop\vector-graphics\docs
 ```
 
-AI 读完 `00` 和 `07` 后，应能立即开始工作。
+**2. 两份核心文档**
+
+直接把文件**拖进聊天窗口**（比复制粘贴快）：
+
+| 文档 | 为什么必须 |
+|---|---|
+| `00-project-status.md` | 项目当前状态速查（定位、账号、端口、已做/未做） |
+| `07-ai开发规范.md` | 输出格式、PowerShell 陷阱、用户偏好 |
+
+其他文档（01-06、08-12）**不用主动给**，AI 需要时再找。
+
+**3. 当前任务**
+
+一句话说清：
+
+- 要做什么（例：开发社区模块的发布作品功能）
+- 为什么做（例：阶段一第一步）
+- 有没有约束（例：后端不改数据库表结构）
+
+### 13.2 最好给的（能省好几轮问答）
+
+**4. 服务状态**
+
+```
+- vectorizer (8000)：在跑 / 没跑
+- esrgan (8001)：在跑 / 没跑
+- backend (8080)：在跑 / 没跑
+- frontend (3000)：在跑 / 没跑
+- Docker 中间件：在跑 / 没跑
+```
+
+或者跑一遍命令，把输出贴给 AI：
+
+```powershell
+Get-NetTCPConnection -LocalPort 3000,8000,8001,8080 -State Listen -ErrorAction SilentlyContinue | Select-Object LocalPort
+```
+
+**5. 有没有报错**
+
+有报错直接贴日志，**比描述一百句都强**：
+
+- 后端：终端里 `[backend] ERROR` 附近的内容
+- 前端：浏览器 Console 的红色报错
+- Python：Traceback 完整栈
+
+**6. Git 状态**
+
+```powershell
+cd C:\Users\z1804\Desktop\vector-graphics
+git status
+git log --oneline -3
+```
+
+### 13.3 开场模板（直接复制）
+
+```
+项目路径：C:\Users\z1804\Desktop\vector-graphics
+文档路径：C:\Users\z1804\Desktop\vector-graphics\docs
+
+附件：
+【1】00-project-status.md（已拖入）
+【2】07-ai开发规范.md（已拖入）
+
+当前任务：
+<一句话说明要做什么>
+
+服务状态：
+- vectorizer (8000)：<在跑/没跑>
+- esrgan (8001)：<在跑/没跑>
+- backend (8080)：<在跑/没跑>
+- frontend (3000)：<在跑/没跑>
+- Docker：<在跑/没跑>
+
+报错：
+<有就贴日志，没有就写"无">
+
+Git：
+<贴 git status 和 git log --oneline -3 输出>
+
+要求：
+严格按 07-ai开发规范.md 执行。特别记住：
+1. 写 md 文件内容用四条反引号包裹，纯 Markdown，不嵌脚本
+2. 写 Python / Java 文件不要用 Set-Content -Encoding UTF8，用 UTF8Encoding($false)
+3. 修改文件前先读原文件，大改动先备份
+4. 每步先确认输出，再进下一步
+5. 代码注释要写全：Java 类头 Javadoc，Python 函数 docstring，复杂逻辑行内注释
+```
+
+### 13.4 最小示例
+
+假设要开发社区模块的发布作品功能，直接发这样一段：
+
+```
+项目路径：C:\Users\z1804\Desktop\vector-graphics
+文档路径：C:\Users\z1804\Desktop\vector-graphics\docs
+
+附件：
+（把 00 和 07 两份文档拖进聊天窗口）
+
+当前任务：
+开发社区模块第一部分：发布作品。
+- 后端：modules/community 建 Post 实体 + PostMapper + PostService + PostController
+- 后端：POST /api/community/posts 发布作品，接收 title + description + fileIds
+- 前端：(main)/community/publish 页面，选自己的文件，填标题描述，提交
+- 导航栏加"社区"入口
+
+服务状态：
+- vectorizer (8000)：在跑
+- esrgan (8001)：在跑
+- backend (8080)：在跑
+- frontend (3000)：在跑
+- Docker：在跑
+
+报错：无
+
+Git：
+working tree clean，最新提交 39ce0dd
+
+要求：
+严格按 07-ai开发规范.md 执行。
+1. 先看 posts 表结构再写代码
+2. 后端写 Javadoc，前端组件写用途注释
+3. 每写一个文件先确认，再写下一个
+4. 不要一次给 5 个方案，给最推荐的
+```
+
+### 13.5 投入对比
+
+| 你给的信息 | AI 进入状态需要 |
+|---|---|
+| 只说"我要开发社区模块" | 20-30 分钟（反复问） |
+| 给 00 + 07 + 任务 | 5 分钟（直接开工） |
+| 给 00 + 07 + 任务 + 服务状态 + git | 2 分钟（立即写代码） |
+
+**最省时间的做法**：把 `docs\00-project-status.md` 和 `docs\07-ai开发规范.md` 两个文件**直接拖进聊天窗口**，再加上当前任务的一句话说明。
+
+### 13.6 AI 收到信息后应该做的
+
+AI 拿到上述信息后，第一步不是直接写代码，而是：
+
+1. **复述任务**：用一句话确认理解正确
+2. **列出计划**：要改哪些文件，分几步
+3. **等确认**：用户说"开始"后再动手
+4. **逐步执行**：每步先读原文件，改完给验证方式
+5. **同步文档**：功能完成后更新 `00-project-status.md`
+
+如果 AI 跳过了前 3 步直接开始改文件，用户可以提醒它回到 `07-ai开发规范.md` 的「二、会话开始固定流程」。

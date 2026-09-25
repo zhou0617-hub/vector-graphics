@@ -6,7 +6,6 @@ import com.svgplatform.security.RestAuthenticationEntryPoint;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -39,7 +38,6 @@ public class SecurityConfig {
                 .accessDeniedHandler(restAccessDeniedHandler)
             )
             .authorizeHttpRequests(auth -> auth
-                // 基础白名单
                 .requestMatchers(
                     "/api/health",
                     "/api/auth/register",
@@ -50,16 +48,6 @@ public class SecurityConfig {
                     "/static/**",
                     "/error"
                 ).permitAll()
-
-                // 社区读接口（广场、详情、排行、某用户作品、评论列表）公开
-                .requestMatchers(HttpMethod.GET, "/api/community/posts", "/api/community/posts/**").permitAll()
-                .requestMatchers(HttpMethod.GET, "/api/community/tags/**").permitAll()
-                .requestMatchers(HttpMethod.GET, "/api/community/search/**").permitAll()
-
-                // 浏览量上报：未登录也可调用
-                .requestMatchers(HttpMethod.POST, "/api/community/posts/*/view").permitAll()
-
-                // 其余全部需要登录
                 .anyRequest().authenticated()
             )
             .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);

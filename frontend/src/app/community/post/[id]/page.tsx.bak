@@ -1,0 +1,248 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { Header } from '@/components/layout/header';
+import { ImageViewer } from '@/components/image-viewer';
+import { getPostDetail, deletePost } from '@/lib/api/community';
+import { assetUrl } from '@/lib/api/client';
+import { useAuthStore } from '@/stores/auth-store';
+import type { PostDetail, PostFileItem } from '@/types/api';
+import {
+  Loader2, ArrowLeft, Eye, Heart, Star, MessageCircle,
+  Calendar, User as UserIcon, Hash, Trash2, ImageOff, AlertCircle,
+} from 'lucide-react';
+
+export default function PostDetailPage() {
+  const params = useParams();
+  const router = useRouter();
+  const postId = Number(params?.id);
+
+  const token = useAuthStore((s) => s.token);
+  const currentUser = useAuthStore((s) => s.user);
+
+  const [post, setPost] = useState<PostDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [viewerSrc, setViewerSrc] = useState<string | null>(null);
+
+  // 加载详情
+  useEffect(() => {
+    if (!postId || isNaN(postId)) {
+      setError('无效的作品 ID');
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    getPostDetail(postId)
+      .then((res) => setPost(res))
+      .catch((err) => setError(err instanceof Error ? err.message : '加载失败'))
+      .finally(() => setLoading(false));
+  }, [postId, token]);
+
+  const handleDelete = async () => {
+    if (!post) return;
+    if (!confirm('确认删除这个作品？此操作不可恢复。')) return;
+    try {
+      await deletePost(post.id);
+      router.push('/community');
+    } catch (err) {
+      alert(err instanceof Error ? err.message : '删除失败');
+    }
+  };
+
+  const formatDate = (iso: string) => {
+    const d = new Date(iso);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  };
+
+  // 加载中
+  if (loading) {
+    return (
+      <>
+        <Header />
+        <main className="min-h-screen flex items-center justify-center text-[#f2f2f2]/50">
+          <Loader2 className="w-5 h-5 animate-spin mr-2" /> 加载中...
+        </main>
+      </>
+    );
+  }
+
+  // 错误
+  if (error || !post) {
+    return (
+      <>
+        <Header />
+        <main className="min-h-screen flex flex-col items-center justify-center gap-4 text-[#f2f2f2]/60">
+          <AlertCircle className="w-10 h-10 text-red-400" />
+          <p>{error || '作品不存在'}</p>
+          <Link href="/community" className="btn-secondary">
+            <ArrowLeft className="w-4 h-4" /> 返回广场
+          </Link>
+        </main>
+      </>
+    );
+  }
+
+  const files = post.files || [];
+  const current = files[activeIndex];
+  const currentUrl = current ? assetUrl(current.url) : null;
+
+  return (
+    <>
+      <Header />
+      <main className="min-h-screen py-12 px-6 relative">
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[300px] bg-[#f9cf00]/5 blur-[120px] rounded-full pointer-events-none" />
+
+        <div className="relative max-w-6xl mx-auto">
+          {/* 返回 */}
+          <div className="flex items-center justify-between mb-6">
+            <Link
+              href="/community"
+              className="inline-flex items-center gap-2 text-sm text-[#f2f2f2]/60 hover:text-white transition-colors"
+            >
+              <ArrowLeft className="w-4 h-4" /> 返回广场
+            </Link>
+
+            {post.mine && (
+              <button
+                onClick={handleDelete}
+                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm hover:bg-red-500/20 transition-colors"
+              >
+                <Trash2 className="w-3.5 h-3.5" /> 删除
+              </button>
+            )}
+          </div>
+
+          {/* 标题 */}
+          <h1 className="text-3xl font-bold mb-4">{post.title}</h1>
+
+          {/* 作者信息栏 */}
+          <div className="flex flex-wrap items-center gap-4 text-sm text-[#f2f2f2]/60 mb-8 pb-6 border-b border-white/5">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#f9cf00] to-[#ff9500] flex items-center justify-center text-black text-xs font-bold overflow-hidden">
+                {post.userAvatar ? (
+                  <img src={assetUrl(post.userAvatar)} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  (post.username?.[0] || '?').toUpperCase()
+                )}
+              </div>
+              <span className="text-white/80">{post.username || '匿名'}</span>
+            </div>
+            <span className="flex items-center gap-1.5">
+              <Calendar className="w-3.5 h-3.5" /> {formatDate(post.createdAt)}
+            </span>
+            <span className="flex items-center gap-1.5">
+              <Eye className="w-3.5 h-3.5" /> {post.viewCount} 浏览
+            </span>
+          </div>
+
+          {/* 图片区 */}
+          {files.length === 0 ? (
+            <div className="glass-card aspect-square flex items-center justify-center mb-8">
+              <ImageOff className="w-16 h-16 text-[#f2f2f2]/20" />
+            </div>
+          ) : (
+            <div className="mb-8">
+              <div className="glass-card relative bg-black/30 overflow-hidden">
+                <div className="aspect-[4/3] flex items-center justify-center">
+                  {currentUrl && (
+                    <img
+                      src={currentUrl}
+                      alt={current?.name || post.title}
+                      className="max-w-full max-h-full object-contain cursor-zoom-in"
+                      onClick={() => setViewerSrc(currentUrl)}
+                    />
+                  )}
+                </div>
+              </div>
+
+              {/* 多图缩略图 */}
+              {files.length > 1 && (
+                <div className="flex gap-3 mt-4 overflow-x-auto pb-2">
+                  {files.map((f, i) => (
+                    <button
+                      key={f.id}
+                      onClick={() => setActiveIndex(i)}
+                      className={`shrink-0 w-20 h-20 rounded-lg overflow-hidden border-2 transition-all ${
+                        i === activeIndex
+                          ? 'border-[#f9cf00]'
+                          : 'border-white/10 hover:border-white/30'
+                      }`}
+                    >
+                      <img
+                        src={assetUrl(f.url)}
+                        alt={f.name}
+                        className="w-full h-full object-cover"
+                        loading="lazy"
+                      />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 互动栏（占位，下一批接入） */}
+          <div className="glass-card p-4 mb-6 flex items-center justify-around">
+            <div className="flex flex-col items-center gap-1 text-[#f2f2f2]/60">
+              <Heart className="w-5 h-5" />
+              <span className="text-xs">点赞 {post.likeCount}</span>
+            </div>
+            <div className="flex flex-col items-center gap-1 text-[#f2f2f2]/60">
+              <Star className="w-5 h-5" />
+              <span className="text-xs">收藏 {post.favoriteCount}</span>
+            </div>
+            <div className="flex flex-col items-center gap-1 text-[#f2f2f2]/60">
+              <MessageCircle className="w-5 h-5" />
+              <span className="text-xs">评论 {post.commentCount}</span>
+            </div>
+          </div>
+          {!token && (
+            <p className="text-center text-xs text-[#f2f2f2]/40 mb-6">
+              <Link href={`/login?redirect=/community/post/${post.id}`} className="text-[#f9cf00] hover:underline">
+                登录
+              </Link>
+              {' '}后可以点赞、收藏和评论
+            </p>
+          )}
+
+          {/* 标签 */}
+          {post.tags && post.tags.length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-6">
+              {post.tags.map((tag) => (
+                <span
+                  key={tag.id}
+                  className="flex items-center gap-1 px-3 py-1 rounded-full bg-white/5 border border-white/10 text-sm text-[#f2f2f2]/70"
+                >
+                  <Hash className="w-3 h-3" />
+                  {tag.name}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {/* 描述 */}
+          {post.description && (
+            <div className="glass-card p-6 mb-8">
+              <h2 className="text-sm font-medium mb-3 text-[#f2f2f2]/60">作品描述</h2>
+              <p className="text-[#f2f2f2]/90 whitespace-pre-wrap leading-relaxed">
+                {post.description}
+              </p>
+            </div>
+          )}
+        </div>
+      </main>
+
+      {viewerSrc && (
+        <ImageViewer
+          src={viewerSrc}
+          alt={post.title}
+          onClose={() => setViewerSrc(null)}
+        />
+      )}
+    </>
+  );
+}

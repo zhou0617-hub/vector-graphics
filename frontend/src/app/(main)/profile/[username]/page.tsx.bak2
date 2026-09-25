@@ -5,30 +5,23 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { Header } from '@/components/layout/header';
 import { getUserByUsername } from '@/lib/api/users';
-import { assetUrl, request } from '@/lib/api/client';
+import { assetUrl } from '@/lib/api/client';
 import { useAuthStore } from '@/stores/auth-store';
 import type { User, PostItem, UserCommentResponse, PageResponse } from '@/types/api';
 import {
   Pencil, Image as ImageIcon, Heart, Star, MessageCircle,
-  Loader2, ImageOff, Eye, LayoutGrid, Activity,
+  Loader2, ImageOff, Eye, LayoutGrid,
 } from 'lucide-react';
+import { request } from '@/lib/api/client';
 
-/** 顶级 Tab：公开作品 / 动态 */
-const MAIN_TABS = [
-  { key: 'posts',    label: '公开作品', icon: LayoutGrid },
-  { key: 'activity', label: '动态',     icon: Activity },
+const TABS = [
+  { key: 'posts',     label: '公开作品', icon: LayoutGrid },
+  { key: 'liked',     label: '点赞',     icon: Heart },
+  { key: 'favorited', label: '收藏',     icon: Star },
+  { key: 'comments',  label: '评论',     icon: MessageCircle },
 ] as const;
 
-type MainTabKey = typeof MAIN_TABS[number]['key'];
-
-/** 动态下的二级 Tab */
-const ACTIVITY_TABS = [
-  { key: 'liked',     label: '点赞',  icon: Heart },
-  { key: 'favorited', label: '收藏',  icon: Star },
-  { key: 'comments',  label: '评论',  icon: MessageCircle },
-] as const;
-
-type ActivityTabKey = typeof ACTIVITY_TABS[number]['key'];
+type TabKey = typeof TABS[number]['key'];
 
 export default function ProfilePage() {
   const params = useParams();
@@ -38,8 +31,7 @@ export default function ProfilePage() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [mainTab, setMainTab] = useState<MainTabKey>('posts');
-  const [activityTab, setActivityTab] = useState<ActivityTabKey>('liked');
+  const [tab, setTab] = useState<TabKey>('posts');
 
   // 动态数据
   const [posts, setPosts] = useState<PostItem[]>([]);
@@ -69,30 +61,29 @@ export default function ProfilePage() {
     const base = `/api/community/posts/user/${user.id}`;
     let promise: Promise<unknown>;
 
-    if (mainTab === 'posts') {
-      promise = request<PageResponse<PostItem>>(`${base}?page=1&size=60`).then((r) => {
-        if (!cancelled) setPosts(r.items);
-      });
-    } else {
-      switch (activityTab) {
-        case 'liked':
-          promise = request<PageResponse<PostItem>>(`${base}/liked?page=1&size=60`).then((r) => {
-            if (!cancelled) setLiked(r.items);
-          });
-          break;
-        case 'favorited':
-          promise = request<PageResponse<PostItem>>(`${base}/favorited?page=1&size=60`).then((r) => {
-            if (!cancelled) setFavorited(r.items);
-          });
-          break;
-        case 'comments':
-          promise = request<PageResponse<UserCommentResponse>>(`${base}/comments?page=1&size=60`).then((r) => {
-            if (!cancelled) setComments(r.items);
-          });
-          break;
-        default:
-          promise = Promise.resolve();
-      }
+    switch (tab) {
+      case 'posts':
+        promise = request<PageResponse<PostItem>>(`${base}?page=1&size=60`).then((r) => {
+          if (!cancelled) setPosts(r.items);
+        });
+        break;
+      case 'liked':
+        promise = request<PageResponse<PostItem>>(`${base}/liked?page=1&size=60`).then((r) => {
+          if (!cancelled) setLiked(r.items);
+        });
+        break;
+      case 'favorited':
+        promise = request<PageResponse<PostItem>>(`${base}/favorited?page=1&size=60`).then((r) => {
+          if (!cancelled) setFavorited(r.items);
+        });
+        break;
+      case 'comments':
+        promise = request<PageResponse<UserCommentResponse>>(`${base}/comments?page=1&size=60`).then((r) => {
+          if (!cancelled) setComments(r.items);
+        });
+        break;
+      default:
+        promise = Promise.resolve();
     }
 
     promise
@@ -102,7 +93,7 @@ export default function ProfilePage() {
       });
 
     return () => { cancelled = true; };
-  }, [user, mainTab, activityTab]);
+  }, [user, tab]);
 
   if (loading) {
     return (
@@ -173,6 +164,7 @@ export default function ProfilePage() {
                   </div>
                 </div>
 
+                {/* 编辑按钮 */}
                 {isMe && (
                   <Link
                     href="/settings"
@@ -193,18 +185,18 @@ export default function ProfilePage() {
               </div>
             </aside>
 
-            {/* ==================== 右侧：内容区 ==================== */}
+            {/* ==================== 右侧：动态 Tabs ==================== */}
             <section className="min-w-0">
-              {/* 顶级 Tab：公开作品 / 动态 */}
-              <div className="flex items-center gap-1 mb-6 border-b border-white/5">
-                {MAIN_TABS.map((t) => {
+              {/* Tab 栏 */}
+              <div className="flex items-center gap-1 mb-6 border-b border-white/5 overflow-x-auto">
+                {TABS.map((t) => {
                   const Icon = t.icon;
-                  const active = mainTab === t.key;
+                  const active = tab === t.key;
                   return (
                     <button
                       key={t.key}
-                      onClick={() => setMainTab(t.key)}
-                      className={`relative flex items-center gap-1.5 px-5 py-3 text-sm font-medium whitespace-nowrap transition-colors ${
+                      onClick={() => setTab(t.key)}
+                      className={`relative flex items-center gap-1.5 px-4 py-3 text-sm font-medium whitespace-nowrap transition-colors ${
                         active ? 'text-[#f9cf00]' : 'text-white/60 hover:text-white'
                       }`}
                     >
@@ -218,30 +210,6 @@ export default function ProfilePage() {
                 })}
               </div>
 
-              {/* 二级 Tab：仅在"动态"下显示 */}
-              {mainTab === 'activity' && (
-                <div className="flex items-center gap-2 mb-5 flex-wrap">
-                  {ACTIVITY_TABS.map((t) => {
-                    const Icon = t.icon;
-                    const active = activityTab === t.key;
-                    return (
-                      <button
-                        key={t.key}
-                        onClick={() => setActivityTab(t.key)}
-                        className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm transition-all ${
-                          active
-                            ? 'bg-[#f9cf00] text-black font-medium'
-                            : 'bg-white/5 border border-white/10 text-white/70 hover:bg-white/10 hover:text-white'
-                        }`}
-                      >
-                        <Icon className="w-3.5 h-3.5" />
-                        {t.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-
               {/* 内容区 */}
               {tabLoading && (
                 <div className="text-center py-16 text-[#f2f2f2]/40">
@@ -249,19 +217,19 @@ export default function ProfilePage() {
                 </div>
               )}
 
-              {!tabLoading && mainTab === 'posts' && (
+              {!tabLoading && tab === 'posts' && (
                 <PostGrid posts={posts} emptyText="暂无公开作品" />
               )}
 
-              {!tabLoading && mainTab === 'activity' && activityTab === 'liked' && (
+              {!tabLoading && tab === 'liked' && (
                 <PostGrid posts={liked} emptyText="还没有点赞过任何作品" />
               )}
 
-              {!tabLoading && mainTab === 'activity' && activityTab === 'favorited' && (
+              {!tabLoading && tab === 'favorited' && (
                 <PostGrid posts={favorited} emptyText="还没有收藏过任何作品" />
               )}
 
-              {!tabLoading && mainTab === 'activity' && activityTab === 'comments' && (
+              {!tabLoading && tab === 'comments' && (
                 <CommentList comments={comments} />
               )}
             </section>
@@ -317,7 +285,7 @@ function PostGrid({ posts, emptyText }: { posts: PostItem[]; emptyText: string }
   );
 }
 
-/** 评论列表（按帖子合并显示） */
+/** 评论列表 */
 function CommentList({ comments }: { comments: UserCommentResponse[] }) {
   if (comments.length === 0) {
     return (
@@ -331,6 +299,7 @@ function CommentList({ comments }: { comments: UserCommentResponse[] }) {
     <div className="space-y-3">
       {comments.map((c) => (
         <div key={c.id} className="glass-card p-4 flex gap-4">
+          {/* 帖子缩略图 */}
           <Link
             href={`/community/post/${c.postId}`}
             className="w-16 h-16 rounded-lg bg-white/5 overflow-hidden shrink-0"
@@ -349,11 +318,7 @@ function CommentList({ comments }: { comments: UserCommentResponse[] }) {
               href={`/community/post/${c.postId}`}
               className="text-xs text-[#f9cf00]/80 hover:text-[#f9cf00] transition-colors truncate block mb-1"
             >
-              在《{c.postTitle || '未知作品'}》中评论
-              {c.commentCount > 1 && (
-                <span className="ml-1 text-white/40">（共 {c.commentCount} 条）</span>
-              )}
-              ：
+              在《{c.postTitle || '未知作品'}》中评论：
             </Link>
             <p className="text-sm text-[#f2f2f2]/80 whitespace-pre-wrap break-words">
               {c.content}
