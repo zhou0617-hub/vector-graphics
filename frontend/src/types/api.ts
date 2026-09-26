@@ -244,3 +244,28 @@ export interface UserCommentResponse {
   postTitle: string | null;
   postCover: string | null;
 }
+/** 用户在社区的统计数字 */
+export interface UserStats {
+  postCount: number;
+  likedCount: number;
+  favoritedCount: number;
+  commentCount: number;
+}
+// ==================== 收藏夹 ====================
+
+/** 收藏夹 */
+export interface FavoriteFolder {
+  id: number;
+  name: string;
+  description: string | null;
+  isPublic: boolean;
+  itemCount: number;
+  createdAt: string;
+}
+
+/** 创建/编辑收藏夹请求 */
+export interface FavoriteFolderRequest {
+  name: string;
+  description?: string;
+  isPublic?: boolean;
+}

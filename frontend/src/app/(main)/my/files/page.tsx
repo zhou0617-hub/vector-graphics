@@ -393,7 +393,7 @@ export default function MyFilesPage() {
           </div>
 
           {filteredFiles.length > 0 && (
-            <div className="mt-10 flex flex-wrap items-center justify-between gap-4">
+            <div className="mt-10 flex flex-col items-center gap-4">
               <div className="flex items-center gap-2 text-sm text-[#f2f2f2]/60">
                 <span>每页显示</span>
                 <select

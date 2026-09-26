@@ -63,6 +63,45 @@ public class PostController {
     }
 
     /**
+     * 带筛选的作品列表（图3/4/5 用）。
+     *
+     * @param sort    排序字段：latest / like / comment / favorite / view
+     * @param order   排序方向：asc / desc
+     * @param range   时间范围：today / week / month / year / all
+     * @param tagId   标签过滤
+     * @param source  来源过滤：convert / upscale
+     */
+    @GetMapping("/search")
+    public ApiResponse<PageResponse<PostResponse>> search(
+            @RequestParam(value = "sort", required = false, defaultValue = "latest") String sort,
+            @RequestParam(value = "order", required = false, defaultValue = "desc") String order,
+            @RequestParam(value = "range", required = false, defaultValue = "all") String range,
+            @RequestParam(value = "tagId", required = false) Long tagId,
+            @RequestParam(value = "source", required = false) String source,
+            @RequestParam(value = "page", required = false, defaultValue = "1") int page,
+            @RequestParam(value = "size", required = false, defaultValue = "24") int size) {
+        return ApiResponse.success(
+                postService.searchPaged(sort, order, range, tagId, source, page, size));
+    }
+
+    /**
+     * 随机取一个作品 ID。返回 null 表示社区暂无作品。
+     */
+    @GetMapping("/random")
+    public ApiResponse<Long> random() {
+        return ApiResponse.success(postService.randomPostId());
+    }
+
+    /**
+     * 某用户的统计数字（作品/点赞/收藏/评论总数）。
+     */
+    @GetMapping("/user/{userId}/stats")
+    public ApiResponse<com.svgplatform.modules.community.dto.UserStatsResponse> userStats(
+            @PathVariable("userId") Long userId) {
+        return ApiResponse.success(postService.getUserStats(userId));
+    }
+
+    /**
      * 某用户的作品列表。
      */
     @GetMapping("/user/{userId}")
@@ -90,9 +129,15 @@ public class PostController {
     @GetMapping("/user/{userId}/favorited")
     public ApiResponse<PageResponse<PostResponse>> listFavoritedByUser(
             @PathVariable("userId") Long userId,
+            @RequestParam(value = "folderId", required = false) Long folderId,
+            @RequestParam(value = "all", required = false, defaultValue = "false") boolean all,
             @RequestParam(value = "page", required = false, defaultValue = "1") int page,
             @RequestParam(value = "size", required = false, defaultValue = "20") int size) {
-        return ApiResponse.success(postService.listFavoritedByUser(userId, page, size));
+        // all=true 时返回所有收藏（不分收藏夹）；否则按 folderId 查询（folderId=null 表示默认收藏夹）
+        if (all) {
+            return ApiResponse.success(postService.listFavoritedByUser(userId, page, size));
+        }
+        return ApiResponse.success(postService.listFavoritedByUserInFolder(userId, folderId, page, size));
     }
 
     /**

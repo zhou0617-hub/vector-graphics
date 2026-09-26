@@ -370,6 +370,75 @@ public class PostService {
         return items;
     }
 
+    /**
+     * 随机取一个作品 ID。没有作品时返回 null。
+     */
+    public Long randomPostId() {
+        return postMapper.selectRandomId();
+    }
+
+    /**
+     * 带筛选的分页查询。
+     *
+     * @param sort    排序字段：latest / like / comment / favorite / view
+     * @param order   排序方向：asc / desc
+     * @param range   时间范围：today / week / month / year / all
+     * @param tagId   标签过滤（可为 null）
+     * @param source  来源过滤：convert / upscale（可为 null）
+     * @param page    页码，从 1 开始
+     * @param size    每页条数
+     */
+    public PageResponse<PostResponse> searchPaged(String sort, String order, String range,
+                                                  Long tagId, String source, int page, int size) {
+        int p = Math.max(1, page);
+        int s = Math.min(Math.max(1, size), MAX_PAGE_SIZE);
+
+        // 时间范围
+        LocalDateTime since = switch (range == null ? "all" : range) {
+            case "today" -> LocalDateTime.now().toLocalDate().atStartOfDay();
+            case "week"  -> LocalDateTime.now().minusDays(7);
+            case "month" -> LocalDateTime.now().minusDays(30);
+            case "year"  -> LocalDateTime.now().minusDays(365);
+            default      -> null;
+        };
+
+        // 排序字段白名单
+        String sortKey = (sort == null || sort.isEmpty()) ? "latest" : sort;
+        String orderKey = "asc".equalsIgnoreCase(order) ? "asc" : "desc";
+
+        long total = postMapper.countSearchPage(since, tagId, source);
+        if (total == 0) {
+            return PageResponse.of(List.of(), 0, p, s);
+        }
+
+        int offset = (p - 1) * s;
+        List<Post> posts = postMapper.selectSearchPage(
+                sortKey, orderKey, since, tagId, source, offset, s);
+
+        return PageResponse.of(enrichList(posts), total, p, s);
+    }
+
+    /**
+     * 用户在社区的统计数字（作品/点赞/收藏/评论总数）。
+     */
+    public com.svgplatform.modules.community.dto.UserStatsResponse getUserStats(Long userId) {
+        com.svgplatform.modules.community.dto.UserStatsResponse stats =
+                new com.svgplatform.modules.community.dto.UserStatsResponse();
+        stats.setPostCount(postMapper.selectCount(
+                new LambdaQueryWrapper<Post>()
+                        .eq(Post::getStatus, "normal")
+                        .eq(Post::getUserId, userId)));
+        stats.setLikedCount(likeMapper.selectCount(
+                new LambdaQueryWrapper<Like>().eq(Like::getUserId, userId)));
+        stats.setFavoritedCount(favoriteMapper.selectCount(
+                new LambdaQueryWrapper<Favorite>().eq(Favorite::getUserId, userId)));
+        stats.setCommentCount(commentMapper.selectCount(
+                new LambdaQueryWrapper<Comment>()
+                        .eq(Comment::getUserId, userId)
+                        .eq(Comment::getStatus, "normal")));
+        return stats;
+    }
+
     // ==================== 个人中心：用户动态 ====================
 
     /**
@@ -403,6 +472,46 @@ public class PostService {
                 .toList();
 
         return PageResponse.of(enrichList(ordered), likePage.getTotal(), p, s);
+    }
+
+    /**
+     * 用户某个收藏夹下的作品列表。
+     *
+     * @param folderId 收藏夹 ID，为 null 时表示"默认收藏夹"（folder_id IS NULL）
+     */
+    public PageResponse<PostResponse> listFavoritedByUserInFolder(Long userId, Long folderId, int page, int size) {
+        int p = Math.max(1, page);
+        int s = Math.min(Math.max(1, size), MAX_PAGE_SIZE);
+
+        LambdaQueryWrapper<Favorite> fw = new LambdaQueryWrapper<Favorite>()
+                .eq(Favorite::getUserId, userId)
+                .orderByDesc(Favorite::getCreatedAt);
+        if (folderId == null) {
+            fw.isNull(Favorite::getFolderId);
+        } else {
+            fw.eq(Favorite::getFolderId, folderId);
+        }
+
+        Page<Favorite> pager = new Page<>(p, s);
+        Page<Favorite> favPage = favoriteMapper.selectPage(pager, fw);
+
+        List<Long> postIds = favPage.getRecords().stream().map(Favorite::getPostId).toList();
+        if (postIds.isEmpty()) {
+            return PageResponse.of(List.of(), favPage.getTotal(), p, s);
+        }
+
+        Map<Long, Post> postMap = postMapper.selectList(
+                new LambdaQueryWrapper<Post>()
+                        .in(Post::getId, postIds)
+                        .eq(Post::getStatus, "normal")
+        ).stream().collect(Collectors.toMap(Post::getId, x -> x));
+
+        List<Post> ordered = postIds.stream()
+                .map(postMap::get)
+                .filter(Objects::nonNull)
+                .toList();
+
+        return PageResponse.of(enrichList(ordered), favPage.getTotal(), p, s);
     }
 
     /**

@@ -12,21 +12,15 @@ import java.util.List;
 /**
  * 社区作品数据访问层。
  * <p>
- * 除 MyBatis-Plus 提供的基础 CRUD 外，额外提供热度排行查询。
+ * 除 MyBatis-Plus 基础 CRUD 外，提供：
+ * 热度排行、随机作品、带筛选的分页搜索。
  */
 @Mapper
 public interface PostMapper extends BaseMapper<Post> {
 
     /**
      * 按热度排行查询作品。
-     * <p>
-     * 热度公式：点赞数 × 3 + 收藏数 × 5 + 评论数 × 4。
-     * 仅统计 created_at 在 since 之后的互动记录。
-     * 总榜可将 since 传为 '1970-01-01'。
-     *
-     * @param since 统计起始时间
-     * @param limit 返回条数上限
-     * @return 按热度降序排列的作品列表
+     * 热度公式：点赞 × 3 + 收藏 × 5 + 评论 × 4。
      */
     @Select("""
             SELECT p.* FROM posts p
@@ -39,4 +33,28 @@ public interface PostMapper extends BaseMapper<Post> {
             LIMIT #{limit}
             """)
     List<Post> selectRanking(@Param("since") LocalDateTime since, @Param("limit") int limit);
+
+    /**
+     * 随机取一个 normal 状态的作品 ID。
+     */
+    @Select("SELECT id FROM posts WHERE status = 'normal' ORDER BY RAND() LIMIT 1")
+    Long selectRandomId();
+
+    /**
+     * 带筛选的作品分页查询（SQL 在 mapper/PostMapper.xml）。
+     */
+    List<Post> selectSearchPage(@Param("sort") String sort,
+                                @Param("order") String order,
+                                @Param("since") LocalDateTime since,
+                                @Param("tagId") Long tagId,
+                                @Param("source") String source,
+                                @Param("offset") int offset,
+                                @Param("limit") int limit);
+
+    /**
+     * 带筛选的作品总数。
+     */
+    long countSearchPage(@Param("since") LocalDateTime since,
+                         @Param("tagId") Long tagId,
+                         @Param("source") String source);
 }

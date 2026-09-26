@@ -9,14 +9,14 @@ import {
   getPostDetail, deletePost, viewPost,
   likePost, unlikePost, favoritePost, unfavoritePost,
   listComments, createComment, deleteComment,
-} from '@/lib/api/community';
+, listFavoriteFolders, createFavoriteFolder,\r\n} from '@/lib/api/community';
 import { assetUrl } from '@/lib/api/client';
 import { useAuthStore } from '@/stores/auth-store';
 import type { PostDetail, CommentItem } from '@/types/api';
 import {
   Loader2, ArrowLeft, Eye, Heart, Star, MessageCircle,
   Calendar, Hash, Trash2, ImageOff, AlertCircle,
-  Send, CornerDownRight, X,
+  Send, CornerDownRight, X, Plus, FolderPlus, Check,
 } from 'lucide-react';
 
 export default function PostDetailPage() {
@@ -35,6 +35,13 @@ export default function PostDetailPage() {
 
   // 浏览量防重复上报（React StrictMode 会双调用 useEffect）
   const viewReportedRef = useRef(false);
+
+  // 收藏夹相关
+  const [folders, setFolders] = useState<FavoriteFolder[]>([]);
+  const [showFolderPicker, setShowFolderPicker] = useState(false);
+  const [folderLoading, setFolderLoading] = useState(false);
+  const [creatingFolder, setCreatingFolder] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
 
   // 互动状态：用独立的 state 做乐观更新
   const [liked, setLiked] = useState(false);
@@ -123,26 +130,82 @@ export default function PostDetailPage() {
     }
   };
 
-  // ==================== 收藏（乐观更新）====================
-  const handleToggleFavorite = async () => {
+  // ==================== 收藏 ====================
+  /**
+   * 点击收藏按钮：
+   * - 已收藏 → 直接取消
+   * - 未收藏 → 打开收藏夹选择弹窗
+   */
+  const handleToggleFavorite = () => {
     if (!token) {
       router.push(`/login?redirect=/community/post/${postId}`);
       return;
     }
     if (interacting) return;
-    setInteracting(true);
-    const nextFav = !favorited;
-    const nextCount = nextFav ? favoriteCount + 1 : Math.max(0, favoriteCount - 1);
-    setFavorited(nextFav);
-    setFavoriteCount(nextCount);
+
+    if (favorited) {
+      // 已收藏 → 直接取消
+      (async () => {
+        setInteracting(true);
+        setFavorited(false);
+        setFavoriteCount((c) => Math.max(0, c - 1));
+        try {
+          await unfavoritePost(postId);
+        } catch {
+          setFavorited(true);
+          setFavoriteCount((c) => c + 1);
+        } finally {
+          setInteracting(false);
+        }
+      })();
+    } else {
+      // 未收藏 → 打开收藏夹选择
+      openFolderPicker();
+    }
+  };
+
+  /** 打开收藏夹弹窗并加载收藏夹列表 */
+  const openFolderPicker = async () => {
+    setShowFolderPicker(true);
+    setFolderLoading(true);
     try {
-      if (nextFav) await favoritePost(postId);
-      else await unfavoritePost(postId);
+      const list = await listFavoriteFolders();
+      setFolders(list);
     } catch {
-      setFavorited(!nextFav);
-      setFavoriteCount(favoriteCount);
+      setFolders([]);
+    } finally {
+      setFolderLoading(false);
+    }
+  };
+
+  /** 选择某个收藏夹完成收藏 */
+  const handleSelectFolder = async (folderId: number | null) => {
+    setInteracting(true);
+    setFavorited(true);
+    setFavoriteCount((c) => c + 1);
+    setShowFolderPicker(false);
+    try {
+      await favoritePost(postId, folderId ?? undefined);
+      // 若指定了收藏夹，刷新一下收藏夹的 itemCount（下次打开弹窗会重新拉）
+    } catch {
+      setFavorited(false);
+      setFavoriteCount((c) => Math.max(0, c - 1));
     } finally {
       setInteracting(false);
+    }
+  };
+
+  /** 在当前弹窗内创建新收藏夹并收藏 */
+  const handleCreateAndFavorite = async () => {
+    const name = newFolderName.trim();
+    if (!name) return;
+    try {
+      const folder = await createFavoriteFolder({ name, isPublic: false });
+      setNewFolderName('');
+      setCreatingFolder(false);
+      await handleSelectFolder(folder.id);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : '创建失败');
     }
   };
 
@@ -288,15 +351,25 @@ export default function PostDetailPage() {
           ) : (
             <div className="mb-8">
               <div className="glass-card relative bg-black/30 overflow-hidden">
-                <div className="aspect-[4/3] flex items-center justify-center">
-                  {currentUrl && (
-                    <img
-                      src={currentUrl}
-                      alt={current?.name || post.title}
-                      className="max-w-full max-h-full object-contain cursor-zoom-in"
-                      onClick={() => setViewerSrc(currentUrl)}
-                    />
-                  )}
+                <div className="relative h-[50vh] max-h-[500px]">
+                  {files.map((f, i) => {
+                    const url = assetUrl(f.url);
+                    return (
+                      <div
+                        key={f.id}
+                        className={`absolute inset-0 flex items-center justify-center transition-opacity duration-300 ease-in-out ${
+                          i === activeIndex ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none'
+                        }`}
+                      >
+                        <img
+                          src={url}
+                          alt={f.name || post.title}
+                          className="max-w-full max-h-full object-contain cursor-zoom-in"
+                          onClick={() => setViewerSrc(url)}
+                        />
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -468,6 +541,103 @@ export default function PostDetailPage() {
           </div>
         </div>
       </main>
+
+      {/* ==================== 收藏夹选择弹窗 ==================== */}
+      {showFolderPicker && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm px-4"
+          onClick={() => setShowFolderPicker(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl bg-[#15161a] border border-white/10 shadow-2xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* 头部 */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-white/5">
+              <h3 className="font-medium">收藏到...</h3>
+              <button
+                onClick={() => setShowFolderPicker(false)}
+                className="p-1 rounded hover:bg-white/10 text-white/50 hover:text-white transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* 收藏夹列表 */}
+            <div className="max-h-80 overflow-y-auto p-2">
+              {/* 默认收藏夹 */}
+              <button
+                onClick={() => handleSelectFolder(null)}
+                className="w-full flex items-center gap-3 px-3 py-3 rounded-lg hover:bg-white/5 text-left transition-colors"
+              >
+                <div className="w-10 h-10 rounded-lg bg-[#f9cf00]/10 flex items-center justify-center shrink-0">
+                  <Star className="w-5 h-5 text-[#f9cf00]" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium">默认收藏夹</p>
+                  <p className="text-xs text-white/40">未分类的收藏</p>
+                </div>
+              </button>
+
+              {folderLoading ? (
+                <div className="text-center py-8 text-white/40 text-sm">
+                  <Loader2 className="w-4 h-4 animate-spin inline mr-2" /> 加载中...
+                </div>
+              ) : (
+                folders.map((f) => (
+                  <button
+                    key={f.id}
+                    onClick={() => handleSelectFolder(f.id)}
+                    className="w-full flex items-center gap-3 px-3 py-3 rounded-lg hover:bg-white/5 text-left transition-colors"
+                  >
+                    <div className="w-10 h-10 rounded-lg bg-white/5 flex items-center justify-center shrink-0">
+                      <Star className="w-5 h-5 text-white/60" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{f.name}</p>
+                      <p className="text-xs text-white/40">
+                        {f.itemCount} 个作品{f.isPublic ? ' · 公开' : ''}
+                      </p>
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+
+            {/* 新建收藏夹 */}
+            <div className="border-t border-white/5 p-4">
+              {creatingFolder ? (
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newFolderName}
+                    onChange={(e) => setNewFolderName(e.target.value.slice(0, 64))}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleCreateAndFavorite(); }}
+                    placeholder="输入收藏夹名称"
+                    autoFocus
+                    className="flex-1 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm outline-none focus:border-[#f9cf00] transition-colors"
+                  />
+                  <button
+                    onClick={handleCreateAndFavorite}
+                    disabled={!newFolderName.trim()}
+                    className="px-4 rounded-lg bg-[#f9cf00] text-black text-sm font-medium hover:bg-[#e6bf00] disabled:opacity-40 transition-colors"
+                  >
+                    创建并收藏
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setCreatingFolder(true)}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 text-sm transition-colors"
+                >
+                  <FolderPlus className="w-4 h-4" />
+                  新建收藏夹
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {viewerSrc && (
         <ImageViewer

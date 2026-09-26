@@ -5,7 +5,7 @@ import { useRouter, usePathname } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { useAuthStore } from '@/stores/auth-store';
 import { assetUrl } from '@/lib/api/client';
-import { Sparkles, User, LogOut, ChevronDown, Search } from 'lucide-react';
+import { Sparkles, User, LogOut, ChevronDown, Search, Star } from 'lucide-react';
 
 const NAV_ITEMS = [
   { href: '/tools/image-to-svg', label: '图片转 SVG' },
@@ -127,6 +127,14 @@ export function Header() {
                     >
                       <User className="w-4 h-4" />
                       个人主页
+                    </Link>
+                    <Link
+                      href="/my/favorites"
+                      onClick={() => setMenuOpen(false)}
+                      className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-white/80 hover:bg-white/5 hover:text-white transition-colors"
+                    >
+                      <Star className="w-4 h-4" />
+                      我的收藏
                     </Link>
                     <button
                       onClick={handleLogout}

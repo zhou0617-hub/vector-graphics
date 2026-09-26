@@ -12,6 +12,7 @@ import java.time.LocalDateTime;
  * 收藏记录实体，对应 favorites 表。
  * <p>
  * 唯一索引 (post_id, user_id) 保证同一用户对同一作品只能收藏一次。
+ * folder_id 指向所属收藏夹，NULL 表示在"默认收藏夹"中。
  */
 @Data
 @TableName("favorites")
@@ -25,6 +26,9 @@ public class Favorite implements Serializable {
 
     /** 收藏用户 ID */
     private Long userId;
+
+    /** 收藏夹 ID（NULL = 默认收藏夹） */
+    private Long folderId;
 
     /** 收藏时间 */
     private LocalDateTime createdAt;

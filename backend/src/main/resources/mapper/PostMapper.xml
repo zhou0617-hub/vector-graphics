@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.svgplatform.modules.community.repository.PostMapper">
+
+    <!-- 带筛选的作品查询 -->
+    <select id="selectSearchPage" resultType="com.svgplatform.modules.community.entity.Post">
+        SELECT p.*
+        FROM posts p
+        WHERE p.status = 'normal'
+        <if test="since != null">
+            AND p.created_at &gt;= #{since}
+        </if>
+        <if test="tagId != null">
+            AND EXISTS (
+                SELECT 1 FROM post_tags pt
+                WHERE pt.post_id = p.id AND pt.tag_id = #{tagId}
+            )
+        </if>
+        <if test="source != null and source != ''">
+            AND EXISTS (
+                SELECT 1 FROM post_files pf
+                WHERE pf.post_id = p.id AND pf.source = #{source}
+            )
+        </if>
+        ORDER BY
+        <choose>
+            <when test="sort == 'like'">p.like_count</when>
+            <when test="sort == 'comment'">p.comment_count</when>
+            <when test="sort == 'favorite'">p.favorite_count</when>
+            <when test="sort == 'view'">p.view_count</when>
+            <when test="sort == 'hot'">(p.like_count * 3 + p.favorite_count * 5 + p.comment_count * 4 + p.view_count * 1)</when>
+            <otherwise>p.created_at</otherwise>
+        </choose>
+        <choose>
+            <when test="order == 'asc'">ASC</when>
+            <otherwise>DESC</otherwise>
+        </choose>
+        , p.id DESC
+        LIMIT #{offset}, #{limit}
+    </select>
+
+    <!-- 带筛选的作品总数 -->
+    <select id="countSearchPage" resultType="long">
+        SELECT COUNT(*)
+        FROM posts p
+        WHERE p.status = 'normal'
+        <if test="since != null">
+            AND p.created_at &gt;= #{since}
+        </if>
+        <if test="tagId != null">
+            AND EXISTS (
+                SELECT 1 FROM post_tags pt
+                WHERE pt.post_id = p.id AND pt.tag_id = #{tagId}
+            )
+        </if>
+        <if test="source != null and source != ''">
+            AND EXISTS (
+                SELECT 1 FROM post_files pf
+                WHERE pf.post_id = p.id AND pf.source = #{source}
+            )
+        </if>
+    </select>
+
+</mapper>

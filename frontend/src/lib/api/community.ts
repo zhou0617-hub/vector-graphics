@@ -103,9 +103,10 @@ export function unlikePost(id: number) {
 
 // ==================== 收藏 ====================
 
-/** 收藏 */
-export function favoritePost(id: number) {
-  return request<void>(`/api/community/posts/${id}/favorite`, { method: 'POST' });
+/** 收藏（可指定收藏夹，不传 folderId 表示默认） */
+export function favoritePost(id: number, folderId?: number) {
+  const suffix = folderId != null ? `?folderId=${folderId}` : '';
+  return request<void>(`/api/community/posts/${id}/favorite${suffix}`, { method: 'POST' });
 }
 
 /** 取消收藏 */
@@ -143,11 +144,31 @@ export function viewPost(id: number) {
 }
 // ==================== 搜索 ====================
 
-/** 搜索作品（标题 + 描述） */
-export function searchPosts(q: string, page: number = 1, size: number = 20) {
-  return request<PageResponse<PostItem>>(
-    `/api/community/search/posts?q=${encodeURIComponent(q)}&page=${page}&size=${size}`
-  );
+/** 搜索作品，支持关键词 + 标签 + 时间范围 + 来源 */
+export function searchPosts(
+  q: string,
+  opts: {
+    includeTagIds?: number[];
+    excludeTagIds?: number[];
+    range?: string;
+    source?: string;
+    page?: number;
+    size?: number;
+  } = {}
+) {
+  const qs = new URLSearchParams();
+  if (q) qs.set('q', q);
+  if (opts.includeTagIds && opts.includeTagIds.length > 0) {
+    opts.includeTagIds.forEach((id) => qs.append('includeTagIds', String(id)));
+  }
+  if (opts.excludeTagIds && opts.excludeTagIds.length > 0) {
+    opts.excludeTagIds.forEach((id) => qs.append('excludeTagIds', String(id)));
+  }
+  if (opts.range) qs.set('range', opts.range);
+  if (opts.source) qs.set('source', opts.source);
+  qs.set('page', String(opts.page ?? 1));
+  qs.set('size', String(opts.size ?? 20));
+  return request<PageResponse<PostItem>>(`/api/community/search/posts?${qs.toString()}`);
 }
 
 /** 搜索用户（用户名） */
@@ -161,5 +182,83 @@ export function searchUsers(q: string, page: number = 1, size: number = 20) {
 export function searchTags(q: string, limit: number = 20) {
   return request<PostTag[]>(
     `/api/community/search/tags?q=${encodeURIComponent(q)}&limit=${limit}`
+  );
+}
+/** 随机获取一个作品 ID（用于"随机一部作品"按钮） */
+export function getRandomPostId() {
+  return request<number | null>('/api/community/posts/random');
+}
+/** 列出全部标签，按引用次数降序 */
+export function listAllTags() {
+  return request<PostTag[]>('/api/community/tags');
+}
+/** 带筛选的作品分页查询 */
+export function searchPagedPosts(params: {
+  sort?: string;
+  order?: string;
+  range?: string;
+  tagId?: number;
+  source?: string;
+  page?: number;
+  size?: number;
+}) {
+  const qs = new URLSearchParams();
+  if (params.sort) qs.set('sort', params.sort);
+  if (params.order) qs.set('order', params.order);
+  if (params.range) qs.set('range', params.range);
+  if (params.tagId != null) qs.set('tagId', String(params.tagId));
+  if (params.source) qs.set('source', params.source);
+  if (params.page) qs.set('page', String(params.page));
+  if (params.size) qs.set('size', String(params.size));
+  return request<PageResponse<PostItem>>(`/api/community/posts/search?${qs.toString()}`);
+}
+
+/** 获取用户在社区的统计数字（作品/点赞/收藏/评论） */
+export function getUserStats(userId: number) {
+  return request<UserStats>(`/api/community/posts/user/${userId}/stats`);
+}
+// ==================== 收藏夹 ====================
+
+/** 列出当前用户的所有收藏夹 */
+export function listFavoriteFolders() {
+  return request<FavoriteFolder[]>('/api/community/favorite-folders');
+}
+
+/** 创建收藏夹 */
+export function createFavoriteFolder(data: FavoriteFolderRequest) {
+  return request<FavoriteFolder>('/api/community/favorite-folders', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+/** 编辑收藏夹 */
+export function updateFavoriteFolder(id: number, data: FavoriteFolderRequest) {
+  return request<FavoriteFolder>(`/api/community/favorite-folders/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  });
+}
+
+/** 删除收藏夹（夹内收藏归到默认收藏夹） */
+export function deleteFavoriteFolder(id: number) {
+  return request<void>(`/api/community/favorite-folders/${id}`, { method: 'DELETE' });
+}
+/**
+ * 用户在某个收藏夹下的作品。
+ * @param userId   用户 ID
+ * @param folderId 收藏夹 ID，null 表示"默认收藏夹"
+ */
+export function listFavoritedInFolder(userId: number, folderId: number | null) {
+  const suffix = folderId == null ? '' : `?folderId=${folderId}`;
+  return request<PageResponse<PostItem>>(
+    `/api/community/posts/user/${userId}/favorited${suffix}`
+  );
+}
+
+/** 用户所有收藏（不分收藏夹） */
+export function listAllFavorited(userId: number) {
+  return request<PageResponse<PostItem>>(
+    `/api/community/posts/user/${userId}/favorited?all=true`
   );
 }

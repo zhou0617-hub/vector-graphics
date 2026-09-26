@@ -87,3 +87,11 @@ setup-*.js
 
 # Word 文档（pandoc 生成，不入库）
 *.docx
+
+# 备份文件
+*.bak
+*.bak1
+*.bak2
+*.bak3
+*.bak4
+*.bak5

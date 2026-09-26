@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 /**
- * 社区搜索接口。三类：作品 / 用户 / 标签。
+ * 社区搜索接口。
  * <p>
  * 全部公开（未登录可搜索）。
  */
@@ -23,13 +23,24 @@ public class SearchController {
 
     private final SearchService searchService;
 
-    /** 搜索作品 */
+    /**
+     * 搜索作品。
+     *
+     * @param q              关键词
+     * @param includeTagIds  包含标签（逗号分隔，如 1,2）
+     * @param excludeTagIds  排除标签（逗号分隔，如 3,4）
+     */
     @GetMapping("/posts")
     public ApiResponse<PageResponse<PostResponse>> posts(
-            @RequestParam("q") String q,
+            @RequestParam(value = "q", required = false, defaultValue = "") String q,
+            @RequestParam(value = "includeTagIds", required = false) List<Long> includeTagIds,
+            @RequestParam(value = "excludeTagIds", required = false) List<Long> excludeTagIds,
+            @RequestParam(value = "range", required = false, defaultValue = "all") String range,
+            @RequestParam(value = "source", required = false) String source,
             @RequestParam(value = "page", required = false, defaultValue = "1") int page,
             @RequestParam(value = "size", required = false, defaultValue = "20") int size) {
-        return ApiResponse.success(searchService.searchPosts(q, page, size));
+        return ApiResponse.success(
+                searchService.searchPosts(q, includeTagIds, excludeTagIds, range, source, page, size));
     }
 
     /** 搜索用户 */
